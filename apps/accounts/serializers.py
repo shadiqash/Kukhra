@@ -1,0 +1,38 @@
+from django.contrib.auth import get_user_model
+from rest_framework import serializers
+
+User = get_user_model()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'role', 'phone', 'customer', 'assigned_locations',
+            'is_active', 'date_joined',
+        ]
+        read_only_fields = ['id', 'date_joined']
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'role', 'phone', 'customer', 'assigned_locations', 'password',
+        ]
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        # M2M fields must be set after the initial save.
+        assigned_locations = validated_data.pop('assigned_locations', [])
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        if assigned_locations:
+            user.assigned_locations.set(assigned_locations)
+        return user

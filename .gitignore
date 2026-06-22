@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Django
+*.log
+staticfiles/
+# media/ is ignored at runtime; the empty dir is tracked via media/.gitkeep
+media/*
+!media/.gitkeep
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
