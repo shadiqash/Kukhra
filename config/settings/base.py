@@ -124,6 +124,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Stable page-number pagination; PAGE_SIZE=50 keeps responses bounded.
+    # Clients iterate via the 'next'/'previous' links in the response envelope.
+    'DEFAULT_PAGINATION_CLASS': 'config.pagination.StandardPagePagination',
+    'PAGE_SIZE': 50,
+    # Only the login endpoint is throttled (scope 'login'); authenticated
+    # traffic is unthrottled — POS terminals burst legitimately.
+    'DEFAULT_THROTTLE_RATES': {
+        'login': os.environ.get('LOGIN_THROTTLE_RATE', '10/min'),
+    },
 }
 
 # ── JWT ────────────────────────────────────────────────────────────────────────
@@ -178,3 +187,41 @@ LOT_EXPIRY_ALERT_DAYS   = int(os.environ.get('LOT_EXPIRY_ALERT_DAYS', 3))
 CBMS_SYNC_BATCH_SIZE    = int(os.environ.get('CBMS_SYNC_BATCH_SIZE', 50))
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+# Everything goes to stdout/stderr; the container runtime or systemd owns
+# persistence and shipping. LOG_LEVEL tunes verbosity per environment.
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}
