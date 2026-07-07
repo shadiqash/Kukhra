@@ -1,160 +1,223 @@
-import { useEffect, useState } from 'react'
-import { getProducts, createProduct, updateProduct, getPrices, createPrice } from '../api'
+import { useState } from 'react';
+import { Edit2, Plus } from 'lucide-react';
+import NepaliDate from 'nepali-date-converter';
+import { formatMoney, formatDateString } from '../utils/formatters';
+import { useApi } from '../hooks/useApi';
+import ErrorBanner from '../ui/ErrorBanner';
+import { useToast } from '../ui/Toast';
+import { getProducts, getPrices, createProduct, updateProduct, createPrice } from '../api';
+
+function LoadingRows({ cols }) {
+  return Array.from({ length: 4 }).map((_, i) => (
+    <tr key={i} className="border-b border-[#f0f0f0]">
+      {Array.from({ length: cols }).map((__, j) => (
+        <td key={j} className="px-4 py-3.5">
+          <div className="h-4 bg-gray-100 rounded animate-pulse w-3/4" />
+        </td>
+      ))}
+    </tr>
+  ));
+}
 
 export default function Products() {
-  const [products, setProducts] = useState([])
-  const [prices, setPrices] = useState({})
-  const [form, setForm] = useState({ name: '', barcode: '', uom: 'kg', is_weighed: true, tax_class: 'exempt' })
-  const [priceForm, setPriceForm] = useState({ product: '', tier: 'retail', price_paisa: '', valid_from: '' })
-  const [showForm, setShowForm] = useState(false)
-  const [showPriceForm, setShowPriceForm] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const toast = useToast();
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [productForm, setProductForm] = useState({ name: '', barcode: '', uom: 'kg', tax_class: 'exempt' });
+  const [editingId, setEditingId] = useState(null);
+  const [priceForm, setPriceForm] = useState({ product: '', tier: 'retail', price_paisa_rs: '', valid_from: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  async function load() {
-    const [pr, pc] = await Promise.all([getProducts(), getPrices({ valid_to__isnull: true })])
-    setProducts(pr.data.results ?? pr.data)
-    const map = {}
-    ;(pc.data.results ?? pc.data).forEach((p) => { map[p.product] = p })
-    setPrices(map)
-  }
-  useEffect(() => { load() }, [])
+  const { data: products, loading, error: loadError, refetch } = useApi(getProducts);
+  const { data: prices, refetch: refetchPrices } = useApi(getPrices, { active: true });
+
+  // Build price lookup map: product_id → price_paisa (retail)
+  const priceMap = {};
+  prices.forEach(p => { if (p.tier === 'retail') priceMap[p.product] = p.price_paisa; });
+  const wholePriceMap = {};
+  prices.forEach(p => { if (p.tier === 'wholesale') wholePriceMap[p.product] = p.price_paisa; });
 
   async function handleSaveProduct(e) {
-    e.preventDefault()
-    setLoading(true)
+    e.preventDefault();
+    setSaving(true); setError('');
     try {
-      await createProduct(form)
-      setForm({ name: '', barcode: '', uom: 'kg', is_weighed: true, tax_class: 'exempt' })
-      setShowForm(false)
-      await load()
-    } finally { setLoading(false) }
+      if (editingId) {
+        await updateProduct(editingId, productForm);
+      } else {
+        await createProduct(productForm);
+      }
+      setShowProductModal(false);
+      setEditingId(null);
+      setProductForm({ name: '', barcode: '', uom: 'kg', tax_class: 'exempt' });
+      toast.success(editingId ? 'Product updated' : 'Product saved');
+      refetch();
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Failed to save product');
+    } finally { setSaving(false); }
+  }
+
+  function openEdit(p) {
+    setEditingId(p.id);
+    setProductForm({ name: p.name, barcode: p.barcode ?? '', uom: p.uom, tax_class: p.tax_class });
+    setError('');
+    setShowProductModal(true);
+  }
+
+  function bsToAD(bsStr) {
+    const [y, m, d] = bsStr.split('-').map(Number);
+    const nd = new NepaliDate(y, m - 1, d);
+    const ad = nd.toJsDate();
+    return `${ad.getFullYear()}-${String(ad.getMonth() + 1).padStart(2, '0')}-${String(ad.getDate()).padStart(2, '0')}`;
   }
 
   async function handleSavePrice(e) {
-    e.preventDefault()
-    setLoading(true)
+    e.preventDefault();
+    setSaving(true); setError('');
     try {
-      await createPrice({ ...priceForm, price_paisa: Math.round(parseFloat(priceForm.price_paisa) * 100) })
-      setShowPriceForm(false)
-      await load()
-    } finally { setLoading(false) }
+      await createPrice({
+        product: priceForm.product,
+        tier: priceForm.tier,
+        price_paisa: Math.round(parseFloat(priceForm.price_paisa_rs) * 100),
+        valid_from: bsToAD(priceForm.valid_from),
+      });
+      setShowPriceModal(false);
+      setPriceForm({ product: '', tier: 'retail', price_paisa_rs: '', valid_from: '' });
+      toast.success('Price saved');
+      refetchPrices();
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Failed to save price');
+    } finally { setSaving(false); }
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-gray-800">Products</h1>
-        <div className="flex gap-2">
-          <button onClick={() => setShowPriceForm(true)} className="text-sm border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-            + Price
-          </button>
-          <button onClick={() => setShowForm(true)} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
-            + Product
-          </button>
+    <div className="max-w-7xl mx-auto h-full flex flex-col">
+      <ErrorBanner error={loadError} onRetry={refetch} />
+      <div className="flex gap-3 mb-5">
+        <button onClick={() => setShowPriceModal(true)} className="h-10 px-4 border-[1.5px] border-brand-primary text-brand-primary rounded-md font-sans text-[14px] hover:bg-[#f0faf8] transition-colors flex items-center gap-2">
+          <Plus size={16} /> Price
+        </button>
+        <button onClick={() => setShowProductModal(true)} className="h-10 px-4 bg-brand-primary text-white rounded-md font-sans font-semibold text-[14px] hover:bg-brand-primaryHover transition-colors flex items-center gap-2">
+          <Plus size={16} /> Product
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full text-left whitespace-nowrap">
+            <thead className="bg-brand-surface border-b-[1.5px] border-brand-border sticky top-0 z-10">
+              <tr>
+                {['Name', 'Barcode', 'UoM', 'Tax', 'Retail Price', 'Wholesale Price', 'Action'].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-[11px] font-sans font-medium text-text-secondary uppercase tracking-widest">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? <LoadingRows cols={7} /> : products.map((p) => (
+                <tr key={p.id} className="border-b border-[#f0f0f0] hover:bg-[#fafafa] text-[14px]">
+                  <td className="px-4 py-3.5 text-text-primary">{p.name}</td>
+                  <td className="px-4 py-3.5 text-text-secondary font-mono text-[12px]">{p.barcode || '—'}</td>
+                  <td className="px-4 py-3.5 text-text-primary uppercase">{p.uom}</td>
+                  <td className="px-4 py-3.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${p.tax_class === 'exempt' ? 'bg-[#f3f4f6] text-text-secondary' : 'bg-[#fef3c7] text-[#92400e]'}`}>
+                      {p.tax_class === 'exempt' ? 'Exempt' : 'Taxable'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 font-mono text-text-primary">{priceMap[p.id] ? formatMoney(priceMap[p.id]) : '—'}</td>
+                  <td className="px-4 py-3.5 font-mono text-text-primary">{wholePriceMap[p.id] ? formatMoney(wholePriceMap[p.id]) : '—'}</td>
+                  <td className="px-4 py-3.5">
+                    <button onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`} className="flex items-center justify-center w-8 h-8 rounded border border-brand-border text-text-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
+                      <Edit2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && products.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-text-secondary text-[14px]">No products yet.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              {['Name', 'Barcode', 'UoM', 'Weighed', 'Tax', 'Retail Price'].map((h) => (
-                <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {products.map((p) => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">{p.name}</td>
-                <td className="px-4 py-3 text-gray-500">{p.barcode || '—'}</td>
-                <td className="px-4 py-3">{p.uom}</td>
-                <td className="px-4 py-3">{p.is_weighed ? 'Yes' : 'No'}</td>
-                <td className="px-4 py-3">{p.tax_class}</td>
-                <td className="px-4 py-3">
-                  {prices[p.id] ? `Rs ${(prices[p.id].price_paisa / 100).toFixed(2)}` : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {showForm && (
-        <Modal title="Add Product" onClose={() => setShowForm(false)}>
-          <form onSubmit={handleSaveProduct} className="space-y-3">
-            <Field label="Name"><input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} required className="input" /></Field>
-            <Field label="Barcode (optional)"><input value={form.barcode} onChange={(e) => setForm({...form, barcode: e.target.value})} className="input" /></Field>
-            <Field label="UoM">
-              <select value={form.uom} onChange={(e) => setForm({...form, uom: e.target.value})} className="input">
-                <option value="kg">kg</option>
-                <option value="piece">piece</option>
-              </select>
-            </Field>
-            <Field label="Tax Class">
-              <select value={form.tax_class} onChange={(e) => setForm({...form, tax_class: e.target.value})} className="input">
-                <option value="exempt">Exempt</option>
-                <option value="taxable">Taxable (13% VAT)</option>
-              </select>
-            </Field>
-            <ModalActions onCancel={() => setShowForm(false)} loading={loading} />
-          </form>
-        </Modal>
+      {showProductModal && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-[480px] rounded-[20px] shadow-xl p-7">
+            <h2 className="font-sans font-bold text-[20px] text-text-primary mb-5">{editingId ? 'Edit Product' : 'Add Product'}</h2>
+            {error && <p className="text-brand-danger text-[13px] mb-3">{error}</p>}
+            <form onSubmit={handleSaveProduct} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Name</label>
+                <input required type="text" value={productForm.name} onChange={e => setProductForm({...productForm, name: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[15px] focus:border-brand-primary focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Barcode</label>
+                <input type="text" value={productForm.barcode} onChange={e => setProductForm({...productForm, barcode: e.target.value})} placeholder="Scan or type…" className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 font-mono text-[14px] focus:border-brand-primary focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-medium text-text-secondary mb-1">Unit of Measure</label>
+                  <select value={productForm.uom} onChange={e => setProductForm({...productForm, uom: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none bg-white">
+                    <option value="kg">kg</option>
+                    <option value="piece">piece</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-text-secondary mb-1">Tax Class</label>
+                  <select value={productForm.tax_class} onChange={e => setProductForm({...productForm, tax_class: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none bg-white">
+                    <option value="exempt">Exempt</option>
+                    <option value="taxable">Taxable (13% VAT)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button type="button" onClick={() => { setShowProductModal(false); setEditingId(null); setProductForm({ name: '', barcode: '', uom: 'kg', tax_class: 'exempt' }); }} className="flex-1 h-11 border-[1.5px] border-brand-border rounded-md text-text-secondary font-medium">Cancel</button>
+                <button type="submit" disabled={saving} className="flex-1 h-11 bg-brand-primary text-white rounded-md font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
-      {showPriceForm && (
-        <Modal title="Add Price" onClose={() => setShowPriceForm(false)}>
-          <form onSubmit={handleSavePrice} className="space-y-3">
-            <Field label="Product">
-              <select value={priceForm.product} onChange={(e) => setPriceForm({...priceForm, product: e.target.value})} required className="input">
-                <option value="">Select…</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Tier">
-              <select value={priceForm.tier} onChange={(e) => setPriceForm({...priceForm, tier: e.target.value})} className="input">
-                <option value="retail">Retail</option>
-                <option value="wholesale">Wholesale</option>
-                <option value="member">Member</option>
-              </select>
-            </Field>
-            <Field label="Price (Rs)"><input type="number" min="0" step="0.01" value={priceForm.price_paisa} onChange={(e) => setPriceForm({...priceForm, price_paisa: e.target.value})} required className="input" /></Field>
-            <Field label="Valid From"><input type="date" value={priceForm.valid_from} onChange={(e) => setPriceForm({...priceForm, valid_from: e.target.value})} required className="input" /></Field>
-            <ModalActions onCancel={() => setShowPriceForm(false)} loading={loading} />
-          </form>
-        </Modal>
+      {showPriceModal && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-[480px] rounded-[20px] shadow-xl p-7">
+            <h2 className="font-sans font-bold text-[20px] text-text-primary mb-5">Add Price</h2>
+            {error && <p className="text-brand-danger text-[13px] mb-3">{error}</p>}
+            <form onSubmit={handleSavePrice} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Product</label>
+                <select required value={priceForm.product} onChange={e => setPriceForm({...priceForm, product: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none bg-white">
+                  <option value="">Select…</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Tier</label>
+                <select value={priceForm.tier} onChange={e => setPriceForm({...priceForm, tier: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none bg-white">
+                  <option value="retail">Retail</option>
+                  <option value="wholesale">Wholesale</option>
+                  <option value="member">Member</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-medium text-text-secondary mb-1">Price (Rs)</label>
+                  <input required type="number" min="0" step="0.01" value={priceForm.price_paisa_rs} onChange={e => setPriceForm({...priceForm, price_paisa_rs: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 font-mono text-[15px] focus:border-brand-primary focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-text-secondary mb-1">Valid From</label>
+                  <input required type="text" placeholder="YYYY-MM-DD (BS)" value={priceForm.valid_from} onChange={e => setPriceForm({...priceForm, valid_from: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 font-mono text-[14px] focus:border-brand-primary focus:outline-none" />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button type="button" onClick={() => setShowPriceModal(false)} className="flex-1 h-11 border-[1.5px] border-brand-border rounded-md text-text-secondary font-medium">Cancel</button>
+                <button type="submit" disabled={saving} className="flex-1 h-11 bg-brand-primary text-white rounded-md font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
-  )
-}
-
-function Modal({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-        <h2 className="text-lg font-bold mb-4">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {children}
-    </div>
-  )
-}
-
-function ModalActions({ onCancel, loading }) {
-  return (
-    <div className="flex gap-2 pt-2">
-      <button type="button" onClick={onCancel} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
-      <button type="submit" disabled={loading} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-50">
-        {loading ? 'Saving…' : 'Save'}
-      </button>
-    </div>
-  )
+  );
 }

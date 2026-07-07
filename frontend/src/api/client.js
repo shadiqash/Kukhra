@@ -23,7 +23,7 @@ client.interceptors.response.use(
           return client(original)
         } catch {
           localStorage.clear()
-          window.location.href = '/login'
+          window.location.replace('/#/login')
         }
       }
     }

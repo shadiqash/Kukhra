@@ -14,7 +14,14 @@ function parseJwt(token) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const access = localStorage.getItem('access')
-    return access ? parseJwt(access) : null
+    if (!access) return null
+    const parsed = parseJwt(access)
+    // Evict tokens issued before the role claim was added
+    if (!parsed?.role) {
+      localStorage.clear()
+      return null
+    }
+    return parsed
   })
 
   const login = useCallback(async (username, password) => {

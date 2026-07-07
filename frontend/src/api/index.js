@@ -42,8 +42,15 @@ export const getMovements = (params) => client.get('/movements/', { params })
 export const getStock = (params) => client.get('/stock/', { params })
 export const getTransfers = (params) => client.get('/transfers/', { params })
 export const createTransfer = (data) => client.post('/transfers/', data)
-export const updateTransfer = (id, data) => client.patch(`/transfers/${id}/`, data)
-export const createWastage = (data) => client.post('/movements/', { ...data, type: 'wastage' })
+export const confirmTransferReceipt = (id) => client.post(`/transfers/${id}/confirm-receipt/`)
+// Ledger convention: wastage removes stock, so quantities are recorded negative.
+export const createWastage = ({ qty_kg, qty_pieces, ...data }) =>
+  client.post('/movements/', {
+    ...data,
+    type: 'wastage',
+    ...(qty_kg !== undefined && { qty_kg: -Math.abs(parseFloat(qty_kg) || 0) }),
+    ...(qty_pieces !== undefined && { qty_pieces: -Math.abs(parseInt(qty_pieces, 10) || 0) }),
+  })
 
 // Procurement
 export const getPurchaseOrders = (params) => client.get('/purchase-orders/', { params })
@@ -54,11 +61,13 @@ export const createGoodsReceived = (data) => client.post('/goods-received/', dat
 // Sales sessions
 export const getSessions = (params) => client.get('/sessions/', { params })
 export const openSession = (data) => client.post('/sessions/', data)
-export const closeSession = (id, data) => client.patch(`/sessions/${id}/`, data)
+export const closeSession = (id, data) => client.post(`/sessions/${id}/close/`, data)
+export const getSessionSummary = (id) => client.get(`/sessions/${id}/summary/`)
 
 // Orders
 export const getOrders = (params) => client.get('/orders/', { params })
 export const createOrder = (data) => client.post('/orders/', data)
+export const fulfillOrder = (id) => client.post(`/orders/${id}/fulfill/`)
 export const createOrderLine = (data) => client.post('/order-lines/', data)
 export const createPayment = (data) => client.post('/payments/', data)
 
@@ -66,3 +75,7 @@ export const createPayment = (data) => client.post('/payments/', data)
 export const getInvoices = (params) => client.get('/invoices/', { params })
 export const createInvoice = (data) => client.post('/invoices/', data)
 export const getCreditNotes = (params) => client.get('/credit-notes/', { params })
+
+// Audit log
+export const getAuditLogs = (params) => client.get('/audit-logs/', { params })
+

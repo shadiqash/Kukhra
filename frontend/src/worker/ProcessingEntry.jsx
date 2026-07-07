@@ -1,63 +1,94 @@
-import { useEffect, useState } from 'react'
-import { createProcessingRun, getLots } from '../api'
+import { useState } from 'react';
+import { Save } from 'lucide-react';
+import { useApi } from '../hooks/useApi';
+import { getLots, createProcessingRun } from '../api';
 
 export default function ProcessingEntry() {
-  const [lots, setLots] = useState([])
-  const [form, setForm] = useState({ lot: '', input_weight_kg: '', output_weight_kg: '' })
-  const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState('')
-  const [error, setError] = useState('')
+  const [form, setForm] = useState({ lot: '', input_weight_kg: '', output_weight_kg: '' });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    getLots({ status: 'slaughter' }).then(({ data }) => setLots(data.results ?? data)).catch(() => {})
-  }, [])
+  const { data: lots } = useApi(getLots, { status: 'active' });
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    setSuccess('')
+  const inputKg = parseFloat(form.input_weight_kg) || 0;
+  const outputKg = parseFloat(form.output_weight_kg) || 0;
+  const wastageKg = inputKg > 0 ? Math.max(0, inputKg - outputKg) : 0;
+  const yieldPct = inputKg > 0 ? ((outputKg / inputKg) * 100).toFixed(1) : '0.0';
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true); setError('');
     try {
-      await createProcessingRun(form)
-      setSuccess('Processing run recorded')
-      setForm({ lot: '', input_weight_kg: '', output_weight_kg: '' })
-    } catch {
-      setError('Failed to save run')
-    } finally { setLoading(false) }
-  }
+      await createProcessingRun({
+        lot: form.lot,
+        input_weight_kg: form.input_weight_kg,
+        output_weight_kg: form.output_weight_kg,
+      });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+      setForm({ lot: '', input_weight_kg: '', output_weight_kg: '' });
+    } catch (err) {
+      setError(err?.response?.data?.detail ?? 'Failed to save processing record');
+    } finally { setLoading(false); }
+  };
 
   return (
-    <div>
-      <h1 className="text-lg font-bold text-gray-800 mb-4">Processing Entry</h1>
-      {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded-lg text-sm">{success}</div>}
-      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Lot</label>
-          <select value={form.lot} onChange={(e) => setForm({...form, lot: e.target.value})} required className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="">Select lot…</option>
-            {lots.map((l) => <option key={l.id} value={l.id}>{l.code} ({l.live_weight_kg} kg)</option>)}
-          </select>
+    <div className="flex flex-col gap-4">
+      {success && (
+        <div className="bg-[#dcfce7] border-[1.5px] border-[#166534] text-[#166534] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
+          Processing Data Saved!
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Input (kg)</label>
-            <input type="number" min="0" step="0.1" value={form.input_weight_kg} onChange={(e) => setForm({...form, input_weight_kg: e.target.value})} required className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Output (kg)</label>
-            <input type="number" min="0" step="0.1" value={form.output_weight_kg} onChange={(e) => setForm({...form, output_weight_kg: e.target.value})} required className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
+      )}
+      {error && (
+        <div className="bg-[#fee2e2] border-[1.5px] border-[#b91c1c] text-[#b91c1c] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
+          {error}
         </div>
-        {form.input_weight_kg && form.output_weight_kg && (
-          <p className="text-sm text-gray-500">
-            Yield: {((parseFloat(form.output_weight_kg) / parseFloat(form.input_weight_kg)) * 100).toFixed(1)}%
-          </p>
-        )}
-        <button type="submit" disabled={loading} className="w-full bg-green-600 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50">
-          {loading ? 'Saving…' : 'Record Run'}
-        </button>
-      </form>
+      )}
+
+      <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-5 shadow-sm">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <div>
+            <label className="block text-[13px] font-medium text-text-secondary mb-1">Active Lot</label>
+            <select required value={form.lot} onChange={e => setForm({...form, lot: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 font-mono text-[15px] focus:border-brand-primary focus:outline-none bg-white">
+              <option value="">Select Lot...</option>
+              {lots.map(l => <option key={l.id} value={l.id}>{l.code}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-4 pt-2 border-t-[1.5px] border-dashed border-brand-border">
+            <div>
+              <label className="block text-[13px] font-medium text-text-secondary mb-1">Live Weight Used (kg)</label>
+              <input required type="number" min="0.1" step="0.001" value={form.input_weight_kg} onChange={e => setForm({...form, input_weight_kg: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 font-mono text-[16px] focus:border-brand-primary focus:outline-none" />
+            </div>
+            <div>
+              <label className="block text-[13px] font-medium text-text-secondary mb-1">Dressed Weight (kg)</label>
+              <input required type="number" min="0.1" step="0.001" value={form.output_weight_kg} onChange={e => setForm({...form, output_weight_kg: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 font-mono text-[16px] focus:border-brand-primary focus:outline-none" />
+            </div>
+          </div>
+
+          <div className="bg-[#f0faf8] rounded-xl p-4 border border-[#ccfbf1]">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="text-[12px] text-text-secondary font-medium">Calculated Yield</div>
+                <div className={`font-mono text-[24px] font-bold ${parseFloat(yieldPct) >= 70 ? 'text-brand-success' : 'text-brand-danger'}`}>
+                  {yieldPct}%
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[12px] text-text-secondary font-medium">Wastage</div>
+                <div className="font-mono text-[18px] font-bold text-brand-danger">{wastageKg.toFixed(3)} kg</div>
+              </div>
+            </div>
+            <div className="text-right text-[11px] text-text-secondary mt-1">Target: ~70–72%</div>
+          </div>
+
+          <button type="submit" disabled={loading} className="mt-4 w-full h-12 bg-brand-primary text-white rounded-xl font-sans font-bold text-[16px] flex items-center justify-center gap-2 hover:bg-brand-primaryHover transition-colors disabled:opacity-50 shadow-md">
+            <Save size={18} />
+            {loading ? 'Saving...' : 'Save Processing Record'}
+          </button>
+        </form>
+      </div>
     </div>
-  )
+  );
 }
