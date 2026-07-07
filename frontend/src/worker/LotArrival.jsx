@@ -3,19 +3,20 @@ import { Save } from 'lucide-react';
 import { getTodayBS } from '../utils/formatters';
 import { createLot, getSuppliers, getLocations } from '../api';
 import { useApi } from '../hooks/useApi';
+import { useToast } from '../ui/Toast';
+import ErrorBanner from '../ui/ErrorBanner';
 
 export default function LotArrival() {
+  const toast = useToast();
   const [form, setForm] = useState({ code: '', source_type: 'external', supplier: '', arrival_location: '', bird_count: '', live_weight_kg: '' });
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
 
-  const { data: suppliers } = useApi(getSuppliers);
-  const { data: locations } = useApi(getLocations);
+  const { data: suppliers, loading: suppliersLoading, error: suppliersError, refetch: refetchSuppliers } = useApi(getSuppliers);
+  const { data: locations, loading: locationsLoading, error: locationsError, refetch: refetchLocations } = useApi(getLocations);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true);
     try {
       await createLot({
         code: form.code,
@@ -25,26 +26,17 @@ export default function LotArrival() {
         bird_count: parseInt(form.bird_count),
         live_weight_kg: form.live_weight_kg,
       });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      toast.success('Lot arrived successfully');
       setForm({ code: '', source_type: 'external', supplier: '', arrival_location: '', bird_count: '', live_weight_kg: '' });
     } catch (err) {
-      setError(err?.response?.data?.detail ?? 'Failed to record arrival');
+      toast.error(err?.response?.data?.detail ?? 'Failed to record arrival');
     } finally { setLoading(false); }
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {success && (
-        <div className="bg-[#dcfce7] border-[1.5px] border-[#166534] text-[#166534] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          Lot Arrived Successfully!
-        </div>
-      )}
-      {error && (
-        <div className="bg-[#fee2e2] border-[1.5px] border-[#b91c1c] text-[#b91c1c] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={suppliersError} onRetry={refetchSuppliers} />
+      <ErrorBanner error={locationsError} onRetry={refetchLocations} />
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-5 shadow-sm">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -67,15 +59,15 @@ export default function LotArrival() {
           </div>
           <div>
             <label className="block text-[13px] font-medium text-text-secondary mb-1">Vendor/Farm</label>
-            <select value={form.supplier} onChange={e => setForm({...form, supplier: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white">
-              <option value="">None / Own Farm</option>
+            <select value={form.supplier} onChange={e => setForm({...form, supplier: e.target.value})} disabled={suppliersLoading} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white disabled:opacity-60">
+              <option value="">{suppliersLoading ? 'Loading…' : 'None / Own Farm'}</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-[13px] font-medium text-text-secondary mb-1">Arrival Location</label>
-            <select required value={form.arrival_location} onChange={e => setForm({...form, arrival_location: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white">
-              <option value="">Select Location…</option>
+            <select required value={form.arrival_location} onChange={e => setForm({...form, arrival_location: e.target.value})} disabled={locationsLoading} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white disabled:opacity-60">
+              <option value="">{locationsLoading ? 'Loading…' : 'Select Location…'}</option>
               {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>

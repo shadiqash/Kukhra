@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi';
 import { useAuth } from '../auth/AuthContext';
 import { getOrders, getLocations } from '../api';
 import { formatDateString } from '../utils/formatters';
+import ErrorBanner from '../ui/ErrorBanner';
 
 export default function SalesReports() {
   const { user } = useAuth();
@@ -13,7 +14,7 @@ export default function SalesReports() {
     ? { fulfilled_location: user.assigned_locations[0] }
     : {};
 
-  const { data: orders, loading, error } = useApi(getOrders, { page, ...outletFilter });
+  const { data: orders, loading, error, refetch } = useApi(getOrders, { page, ...outletFilter });
   const { data: locations } = useApi(getLocations);
 
   const locationMap = useMemo(
@@ -25,7 +26,7 @@ export default function SalesReports() {
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
-      {error && <div className="mb-4 bg-red-50 text-brand-danger text-[13px] px-4 py-3 rounded-xl border border-red-200">{error}</div>}
+      <ErrorBanner error={error} onRetry={refetch} />
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">

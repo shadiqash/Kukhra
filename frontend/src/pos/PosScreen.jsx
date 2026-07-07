@@ -80,10 +80,7 @@ export default function PosScreen() {
       const pending = await getPendingOrders()
       for (const p of pending) {
         try {
-          // Queued orders were built before the API contract fix; strip any
-          // legacy read-only field before replaying.
-          const { status: _legacyStatus, ...orderPayload } = p.order
-          const { data: createdOrder } = await createOrder(orderPayload)
+          const { data: createdOrder } = await createOrder(p.order)
           await Promise.all(
             p.lines.map((l) =>
               createOrderLine({

@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { getInvoices } from '../api';
 import { printInvoice } from './printInvoice';
 import { formatMoney, formatDateString } from '../utils/formatters';
+import ErrorBanner from '../ui/ErrorBanner';
 
 function Skeleton() {
   return (
@@ -23,11 +24,11 @@ export default function Invoices() {
     ? { order__fulfilled_location: user.assigned_locations[0] }
     : {};
 
-  const { data: invoices, loading, error } = useApi(getInvoices, { page, ...outletFilter });
+  const { data: invoices, loading, error, refetch } = useApi(getInvoices, { page, ...outletFilter });
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
-      {error && <div className="mb-4 bg-red-50 text-brand-danger text-[13px] px-4 py-3 rounded-xl border border-red-200">{error}</div>}
+      <ErrorBanner error={error} onRetry={refetch} />
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
           <table className="w-full text-left whitespace-nowrap">

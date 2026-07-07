@@ -3,6 +3,7 @@ import { useApi } from '../hooks/useApi';
 import { useAuth } from '../auth/AuthContext';
 import { getMovements, getLocations, getProducts } from '../api';
 import { formatDateString } from '../utils/formatters';
+import ErrorBanner from '../ui/ErrorBanner';
 
 const TYPE_COLORS = {
   production: 'bg-[#dcfce7] text-[#166534]',
@@ -38,7 +39,7 @@ export default function Inventory() {
   if (locationFilter) params.location = locationFilter;
   if (typeFilter) params.type = typeFilter;
 
-  const { data: movements, loading, error } = useApi(getMovements, params);
+  const { data: movements, loading, error, refetch } = useApi(getMovements, params);
   const { data: locations } = useApi(getLocations);
   const { data: products } = useApi(getProducts);
 
@@ -53,6 +54,7 @@ export default function Inventory() {
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
+      <ErrorBanner error={error} onRetry={refetch} />
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-4 mb-5 flex items-center gap-3 shadow-sm shrink-0">
         <div className="flex items-center gap-2">
           <label className="text-[13px] text-text-secondary">Location:</label>
@@ -75,7 +77,6 @@ export default function Inventory() {
             ))}
           </select>
         </div>
-        {error && <span className="text-brand-danger text-[13px] ml-auto">{error}</span>}
       </div>
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">

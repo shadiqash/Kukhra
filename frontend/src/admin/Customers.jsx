@@ -4,7 +4,7 @@ import { formatMoney } from '../utils/formatters';
 import { useApi } from '../hooks/useApi';
 import ErrorBanner from '../ui/ErrorBanner';
 import { useToast } from '../ui/Toast';
-import { getCustomers, createCustomer } from '../api';
+import { getCustomers, createCustomer, updateCustomer } from '../api';
 
 export default function Customers() {
   const toast = useToast();
@@ -12,6 +12,11 @@ export default function Customers() {
   const [form, setForm] = useState({ name: '', type: 'retail', pan: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const [viewingCustomer, setViewingCustomer] = useState(null);
+  const [viewForm, setViewForm] = useState({ name: '', type: 'retail', pan: '', credit_limit_paisa: 0 });
+  const [viewSaving, setViewSaving] = useState(false);
+  const [viewError, setViewError] = useState('');
 
   const { data: customers, loading, error: loadError, refetch } = useApi(getCustomers);
 
@@ -27,6 +32,28 @@ export default function Customers() {
     } catch (err) {
       setError(err?.response?.data?.detail ?? 'Failed to save customer');
     } finally { setSaving(false); }
+  }
+
+  function openView(c) {
+    setViewingCustomer(c);
+    setViewForm({ name: c.name, type: c.type, pan: c.pan ?? '', credit_limit_paisa: c.credit_limit_paisa ?? 0 });
+    setViewError('');
+  }
+
+  async function handleViewSave(e) {
+    e.preventDefault();
+    setViewSaving(true); setViewError('');
+    try {
+      await updateCustomer(viewingCustomer.id, {
+        name: viewForm.name, type: viewForm.type, pan: viewForm.pan || null,
+        credit_limit_paisa: viewForm.credit_limit_paisa,
+      });
+      setViewingCustomer(null);
+      toast.success('Customer updated');
+      refetch();
+    } catch (err) {
+      setViewError(err?.response?.data?.detail ?? 'Failed to update customer');
+    } finally { setViewSaving(false); }
   }
 
   return (
@@ -64,7 +91,7 @@ export default function Customers() {
                   <td className="px-4 py-3.5 font-mono text-text-secondary text-[13px]">{c.pan || '—'}</td>
                   <td className="px-4 py-3.5 font-mono text-text-primary">{c.credit_limit_paisa ? formatMoney(c.credit_limit_paisa) : '—'}</td>
                   <td className="px-4 py-3.5">
-                    <button className="text-[13px] text-brand-primary hover:underline">View</button>
+                    <button onClick={() => openView(c)} className="text-[13px] text-brand-primary hover:underline">View</button>
                   </td>
                 </tr>
               ))}
@@ -100,6 +127,40 @@ export default function Customers() {
               <div className="flex gap-3 mt-4">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 h-11 border-[1.5px] border-brand-border rounded-md text-text-secondary font-medium">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 h-11 bg-brand-primary text-white rounded-md font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {viewingCustomer && (
+        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-[480px] rounded-[20px] shadow-xl p-7">
+            <h2 className="font-sans font-bold text-[20px] text-text-primary mb-5">{viewingCustomer.name}</h2>
+            {viewError && <p className="text-brand-danger text-[13px] mb-3">{viewError}</p>}
+            <form onSubmit={handleViewSave} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Name</label>
+                <input required type="text" value={viewForm.name} onChange={e => setViewForm({...viewForm, name: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Type</label>
+                <select value={viewForm.type} onChange={e => setViewForm({...viewForm, type: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 text-[14px] focus:border-brand-primary focus:outline-none bg-white">
+                  <option value="retail">Retail</option>
+                  <option value="wholesale">Wholesale</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">PAN Number (Optional)</label>
+                <input type="text" value={viewForm.pan} onChange={e => setViewForm({...viewForm, pan: e.target.value})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 font-mono text-[14px] focus:border-brand-primary focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-text-secondary mb-1">Credit Limit (Rs)</label>
+                <input type="number" min="0" step="0.01" value={viewForm.credit_limit_paisa / 100} onChange={e => setViewForm({...viewForm, credit_limit_paisa: Math.round(parseFloat(e.target.value || 0) * 100)})} className="w-full h-11 border-[1.5px] border-brand-border rounded-md px-3 font-mono text-[14px] focus:border-brand-primary focus:outline-none" />
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button type="button" onClick={() => setViewingCustomer(null)} className="flex-1 h-11 border-[1.5px] border-brand-border rounded-md text-text-secondary font-medium">Cancel</button>
+                <button type="submit" disabled={viewSaving} className="flex-1 h-11 bg-brand-primary text-white rounded-md font-semibold disabled:opacity-50">{viewSaving ? 'Saving…' : 'Save Changes'}</button>
               </div>
             </form>
           </div>

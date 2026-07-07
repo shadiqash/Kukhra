@@ -2,60 +2,52 @@ import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { createWastage, getProducts, getLocations } from '../api';
 import { useApi } from '../hooks/useApi';
+import { useToast } from '../ui/Toast';
+import ErrorBanner from '../ui/ErrorBanner';
 
 export default function Wastage() {
+  const toast = useToast();
   const [form, setForm] = useState({ product: '', qty_kg: '', location: '' });
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
 
-  const { data: products } = useApi(getProducts);
-  const { data: locations } = useApi(getLocations);
+  const { data: products, loading: productsLoading, error: productsError, refetch: refetchProducts } = useApi(getProducts);
+  const { data: locations, loading: locationsLoading, error: locationsError, refetch: refetchLocations } = useApi(getLocations);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true);
     try {
       await createWastage({
         product: form.product,
         location: form.location,
         qty_kg: form.qty_kg,
       });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      toast.success('Wastage recorded successfully');
       setForm({ product: '', qty_kg: '', location: '' });
     } catch (err) {
-      setError(err?.response?.data?.detail ?? 'Failed to record wastage');
+      toast.error(err?.response?.data?.detail ?? 'Failed to record wastage');
     } finally { setLoading(false); }
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {success && (
-        <div className="bg-[#dcfce7] border-[1.5px] border-[#166534] text-[#166534] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          Wastage Recorded Successfully!
-        </div>
-      )}
-      {error && (
-        <div className="bg-[#fee2e2] border-[1.5px] border-[#b91c1c] text-[#b91c1c] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={productsError} onRetry={refetchProducts} />
+      <ErrorBanner error={locationsError} onRetry={refetchLocations} />
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-5 shadow-sm">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="block text-[13px] font-medium text-text-secondary mb-1">Product</label>
-            <select required value={form.product} onChange={e => setForm({...form, product: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white">
-              <option value="">Select Product...</option>
+            <select required value={form.product} onChange={e => setForm({...form, product: e.target.value})} disabled={productsLoading} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white disabled:opacity-60">
+              <option value="">{productsLoading ? 'Loading…' : 'Select Product...'}</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
 
           <div>
             <label className="block text-[13px] font-medium text-text-secondary mb-1">Location</label>
-            <select required value={form.location} onChange={e => setForm({...form, location: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white">
-              <option value="">Select Location...</option>
+            <select required value={form.location} onChange={e => setForm({...form, location: e.target.value})} disabled={locationsLoading} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 text-[15px] focus:border-brand-primary focus:outline-none bg-white disabled:opacity-60">
+              <option value="">{locationsLoading ? 'Loading…' : 'Select Location...'}</option>
               {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>

@@ -1,6 +1,7 @@
 import { useApi } from '../hooks/useApi';
 import { getProcessingRuns } from '../api';
 import { formatDateString } from '../utils/formatters';
+import ErrorBanner from '../ui/ErrorBanner';
 
 function Skeleton() {
   return (
@@ -13,11 +14,11 @@ function Skeleton() {
 }
 
 export default function Processing() {
-  const { data: runs, loading, error } = useApi(getProcessingRuns);
+  const { data: runs, loading, error, refetch } = useApi(getProcessingRuns);
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
-      {error && <div className="mb-4 bg-red-50 text-brand-danger text-[13px] px-4 py-3 rounded-xl border border-red-200">{error}</div>}
+      <ErrorBanner error={error} onRetry={refetch} />
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
           <table className="w-full text-left whitespace-nowrap">

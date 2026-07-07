@@ -1,6 +1,7 @@
 import { useApi } from '../hooks/useApi';
 import { getAuditLogs } from '../api';
 import { formatDateTimeString } from '../utils/formatters';
+import ErrorBanner from '../ui/ErrorBanner';
 
 function Skeleton() {
   return (
@@ -13,14 +14,14 @@ function Skeleton() {
 }
 
 export default function AuditLog() {
-  const { data: logs, loading, error } = useApi(getAuditLogs);
+  const { data: logs, loading, error, refetch } = useApi(getAuditLogs);
 
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
       <div className="flex justify-between items-center mb-5 shrink-0">
         <h2 className="font-sans font-bold text-[18px] text-text-primary">System Audit Log</h2>
-        {error && <span className="text-brand-danger text-[13px]">{error}</span>}
       </div>
+      <ErrorBanner error={error} onRetry={refetch} />
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border overflow-hidden shadow-sm flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
@@ -51,7 +52,7 @@ export default function AuditLog() {
                 </tr>
               ))}
               {!loading && logs.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-10 text-center text-text-secondary text-[14px]">No audit events recorded.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-10 text-center text-text-secondary text-[14px]">No audit events recorded.</td></tr>
               )}
             </tbody>
           </table>

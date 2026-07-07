@@ -3,15 +3,16 @@ import { PackageCheck, AlertCircle } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getTransfers, getLocations, confirmTransferReceipt } from '../api';
 import { formatDateString } from '../utils/formatters';
+import { useToast } from '../ui/Toast';
+import ErrorBanner from '../ui/ErrorBanner';
 
 export default function ReceiveTransfer() {
+  const toast = useToast();
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
 
-  const { data: transfers, refetch } = useApi(getTransfers, { status: 'dispatched' });
-  const { data: locations } = useApi(getLocations);
+  const { data: transfers, loading: transfersLoading, error: transfersError, refetch } = useApi(getTransfers, { status: 'dispatched' });
+  const { data: locations, error: locationsError, refetch: refetchLocations } = useApi(getLocations);
 
   const locationMap = useMemo(
     () => Object.fromEntries(locations.map(l => [l.id, l])),
@@ -23,32 +24,23 @@ export default function ReceiveTransfer() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedId) return;
-    setLoading(true); setError('');
+    setLoading(true);
     try {
       await confirmTransferReceipt(selectedId);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      toast.success('Transfer received successfully');
       setSelectedId('');
       refetch();
     } catch (err) {
-      setError(err?.response?.data?.detail ?? 'Failed to confirm receipt');
+      toast.error(err?.response?.data?.detail ?? 'Failed to confirm receipt');
     } finally { setLoading(false); }
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {success && (
-        <div className="bg-[#dcfce7] border-[1.5px] border-[#166534] text-[#166534] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          Transfer Received Successfully!
-        </div>
-      )}
-      {error && (
-        <div className="bg-[#fee2e2] border-[1.5px] border-[#b91c1c] text-[#b91c1c] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={transfersError} onRetry={refetch} />
+      <ErrorBanner error={locationsError} onRetry={refetchLocations} />
 
-      {transfers.length === 0 ? (
+      {!transfersLoading && transfers.length === 0 ? (
         <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-8 shadow-sm flex flex-col items-center text-center">
           <div className="w-16 h-16 bg-[#f0faf8] text-brand-primary rounded-full flex items-center justify-center mb-4">
             <PackageCheck size={32} />

@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { Save } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getLots, createProcessingRun } from '../api';
+import { useToast } from '../ui/Toast';
+import ErrorBanner from '../ui/ErrorBanner';
 
 export default function ProcessingEntry() {
+  const toast = useToast();
   const [form, setForm] = useState({ lot: '', input_weight_kg: '', output_weight_kg: '' });
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
 
-  const { data: lots } = useApi(getLots, { status: 'active' });
+  const { data: lots, loading: lotsLoading, error: lotsError, refetch: refetchLots } = useApi(getLots, { status: 'active' });
 
   const inputKg = parseFloat(form.input_weight_kg) || 0;
   const outputKg = parseFloat(form.output_weight_kg) || 0;
@@ -18,40 +19,30 @@ export default function ProcessingEntry() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true);
     try {
       await createProcessingRun({
         lot: form.lot,
         input_weight_kg: form.input_weight_kg,
         output_weight_kg: form.output_weight_kg,
       });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      toast.success('Processing data saved');
       setForm({ lot: '', input_weight_kg: '', output_weight_kg: '' });
     } catch (err) {
-      setError(err?.response?.data?.detail ?? 'Failed to save processing record');
+      toast.error(err?.response?.data?.detail ?? 'Failed to save processing record');
     } finally { setLoading(false); }
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {success && (
-        <div className="bg-[#dcfce7] border-[1.5px] border-[#166534] text-[#166534] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          Processing Data Saved!
-        </div>
-      )}
-      {error && (
-        <div className="bg-[#fee2e2] border-[1.5px] border-[#b91c1c] text-[#b91c1c] px-4 py-3 rounded-xl text-[14px] font-medium flex items-center justify-center">
-          {error}
-        </div>
-      )}
+      <ErrorBanner error={lotsError} onRetry={refetchLots} />
 
       <div className="bg-white rounded-xl border-[1.5px] border-brand-border p-5 shadow-sm">
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div>
             <label className="block text-[13px] font-medium text-text-secondary mb-1">Active Lot</label>
-            <select required value={form.lot} onChange={e => setForm({...form, lot: e.target.value})} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 font-mono text-[15px] focus:border-brand-primary focus:outline-none bg-white">
-              <option value="">Select Lot...</option>
+            <select required value={form.lot} onChange={e => setForm({...form, lot: e.target.value})} disabled={lotsLoading} className="w-full h-12 border-[1.5px] border-brand-border rounded-lg px-3 font-mono text-[15px] focus:border-brand-primary focus:outline-none bg-white disabled:opacity-60">
+              <option value="">{lotsLoading ? 'Loading…' : 'Select Lot...'}</option>
               {lots.map(l => <option key={l.id} value={l.id}>{l.code}</option>)}
             </select>
           </div>
