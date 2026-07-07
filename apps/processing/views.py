@@ -10,3 +10,6 @@ class ProcessingRunViewSet(viewsets.ModelViewSet):
     queryset = ProcessingRun.objects.select_related('lot', 'operator').order_by('-run_at')
     serializer_class = ProcessingRunSerializer
     permission_classes = [IsWarehouseStaff]
+
+    def perform_create(self, serializer):
+        serializer.save(operator=self.request.user)

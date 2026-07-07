@@ -140,6 +140,14 @@ def test_order_fulfill_multi_line_all_movements_negative(
         product=product2, tier=PriceTier.RETAIL,
         price_paisa=40000, valid_from='2024-01-01',
     )
+
+    # Seed stock for both products at the outlet
+    for prod in (product_kg, product2):
+        StockMovement.objects.create(
+            product=prod, location=outlet,
+            type=MovementType.PRODUCTION, qty_kg=Decimal('50.000'), user=manager,
+        )
+
     c = client_for(manager)
 
     order_resp = c.post('/api/orders/', {
@@ -222,7 +230,7 @@ def test_cashier_cannot_list_invoices(cashier_user, sample_invoice):
 def test_manager_can_list_invoices(manager, sample_invoice):
     resp = client_for(manager).get('/api/invoices/')
     assert resp.status_code == 200
-    assert len(resp.data) >= 1
+    assert resp.data['count'] >= 1
 
 
 @pytest.mark.django_db
@@ -231,7 +239,7 @@ def test_outlet_manager_sees_only_their_outlet_invoices(
 ):
     resp = client_for(outlet_mgr).get('/api/invoices/')
     assert resp.status_code == 200
-    ids = [row['id'] for row in resp.data]
+    ids = [row['id'] for row in resp.data['results']]
     assert sample_invoice.pk in ids
     assert other_invoice.pk not in ids
 

@@ -13,6 +13,17 @@ class LotViewSet(viewsets.ModelViewSet):
     serializer_class = LotSerializer
     permission_classes = [IsWarehouseStaff]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # ?status=<LotStatus> filters to one state; ?status=active means
+        # "still in the pipeline" (not yet sold off or settled).
+        status_param = self.request.query_params.get('status')
+        if status_param == 'active':
+            qs = qs.exclude(status__in=['sale', 'settlement'])
+        elif status_param:
+            qs = qs.filter(status=status_param)
+        return qs
+
     @action(detail=True, methods=['post'], url_path='transition')
     def transition(self, request, pk=None):
         lot = self.get_object()

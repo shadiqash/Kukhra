@@ -55,6 +55,11 @@ class AuditLog(BaseModel):
         ordering = ['-created_at']
         db_table = 'accounts_audit_log'
 
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise RuntimeError('AuditLog rows are immutable and must never be updated.')
+        super().save(*args, **kwargs)
+
     def delete(self, *args, **kwargs):
         raise RuntimeError('AuditLog rows are immutable and must never be deleted.')
 

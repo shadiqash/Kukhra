@@ -77,15 +77,14 @@ def api(user):
     return c
 
 
-# ── Edge case 1: Oversell (negative stock allowed in Phase 1) ──────────────────
+# ── Edge case 1: Oversell blocked by stock check ───────────────────────────────
 
 @pytest.mark.django_db
-def test_oversell_results_in_negative_stock(outlet, session, manager, product, price):
+def test_oversell_raises_insufficient_stock(outlet, session, manager, product, price):
     """
-    Phase 1 has no stock floor. Selling beyond available stock drives qty negative.
-    This documents current behaviour — Phase 2 should add a floor check.
+    fulfill() must raise RuntimeError when there is insufficient stock at the outlet.
+    Zero initial stock → selling 5 kg must be rejected.
     """
-    # Zero initial stock
     order = Order.objects.create(
         fulfilled_location=outlet, session=session,
         source=OrderSource.COUNTER, total_paisa=75000,
@@ -94,13 +93,77 @@ def test_oversell_results_in_negative_stock(outlet, session, manager, product, p
         order=order, product=product, price=price,
         qty_kg=Decimal('5.000'), qty_pieces=0, line_total_paisa=375000,
     )
-    order.fulfill(user=manager)  # no stock guard — succeeds
+    with pytest.raises(RuntimeError, match='Insufficient stock'):
+        order.fulfill(user=manager)
 
-    stock = current_stock(product.pk, outlet.pk)['qty_kg']
-    assert stock == Decimal('-5.000'), (
-        f'Expected -5.000 (Phase 1 allows negative), got {stock}. '
-        'If this fails, a stock floor was added — remove this test and add a 400 test instead.'
+    # Order must remain PENDING — no partial fulfillment
+    order.refresh_from_db()
+    assert order.status == OrderStatus.PENDING
+
+    # No sale movements must have been written
+    from apps.inventory.models import MovementType as MT
+    assert StockMovement.objects.filter(ref_id=order.pk, type=MT.SALE).count() == 0
+
+
+@pytest.mark.django_db
+def test_oversell_via_api_returns_400(outlet, session, cashier, product, price, manager):
+    """fulfill endpoint returns 400 with detail message when stock is insufficient."""
+    order = Order.objects.create(
+        fulfilled_location=outlet, session=session,
+        source=OrderSource.COUNTER, total_paisa=75000,
     )
+    OrderLine.objects.create(
+        order=order, product=product, price=price,
+        qty_kg=Decimal('5.000'), qty_pieces=0, line_total_paisa=375000,
+    )
+    resp = api(manager).post(f'/api/orders/{order.pk}/fulfill/')
+    assert resp.status_code == 400
+    assert 'Insufficient stock' in resp.data['detail']
+
+
+@pytest.mark.django_db
+def test_partial_stock_fulfillment_blocked(outlet, session, manager, product, price):
+    """
+    Even if some stock exists, fulfill() rejects the order if any line is short.
+    Stock: 3 kg. Order: 5 kg. Must raise, not partially deduct.
+    """
+    StockMovement.objects.create(
+        product=product, location=outlet,
+        type=MovementType.PRODUCTION, qty_kg=Decimal('3.000'), user=manager,
+    )
+    order = Order.objects.create(
+        fulfilled_location=outlet, session=session,
+        source=OrderSource.COUNTER, total_paisa=75000,
+    )
+    OrderLine.objects.create(
+        order=order, product=product, price=price,
+        qty_kg=Decimal('5.000'), qty_pieces=0, line_total_paisa=375000,
+    )
+    with pytest.raises(RuntimeError, match='Insufficient stock'):
+        order.fulfill(user=manager)
+
+    # Stock must be unchanged
+    assert current_stock(product.pk, outlet.pk)['qty_kg'] == Decimal('3.000')
+
+
+@pytest.mark.django_db
+def test_exact_stock_fulfillment_succeeds(outlet, session, manager, product, price):
+    """Selling exactly the available stock must succeed and leave stock at zero."""
+    StockMovement.objects.create(
+        product=product, location=outlet,
+        type=MovementType.PRODUCTION, qty_kg=Decimal('5.000'), user=manager,
+    )
+    order = Order.objects.create(
+        fulfilled_location=outlet, session=session,
+        source=OrderSource.COUNTER, total_paisa=75000,
+    )
+    OrderLine.objects.create(
+        order=order, product=product, price=price,
+        qty_kg=Decimal('5.000'), qty_pieces=0, line_total_paisa=375000,
+    )
+    order.fulfill(user=manager)  # must not raise
+
+    assert current_stock(product.pk, outlet.pk)['qty_kg'] == Decimal('0.000')
 
 
 # ── Edge case 2: Double-close cashier session ─────────────────────────────────
@@ -187,28 +250,21 @@ def test_settled_lot_cannot_transition(location):
         lot.transition(LotStatus.SALE)
 
 
-# ── Edge case 6: Price overlap — model allows duplicate (valid_from, product, tier) ──
+# ── Edge case 6: Price overlap — unique_active_price_per_product_tier constraint ──
 
 @pytest.mark.django_db
-def test_overlapping_price_is_allowed_silently(product):
+def test_two_active_prices_same_tier_raises(product):
     """
-    Phase 1: Price has no unique_together on (product, tier, valid_from).
-    Two prices with the same key can coexist — the API returns whichever the ORM picks.
-    Documents current behaviour; Phase 2 should add a unique constraint or overlap guard.
+    unique_active_price_per_product_tier blocks a second Price with valid_to=None
+    for the same (product, tier). This replaced the Phase 1 gap test.
     """
+    from django.db import IntegrityError
     Price.objects.create(
         product=product, tier=PriceTier.RETAIL,
         price_paisa=75000, valid_from='2024-01-01',
     )
-    # This should not raise — but documents a known gap
-    p2 = Price.objects.create(
-        product=product, tier=PriceTier.RETAIL,
-        price_paisa=80000, valid_from='2024-01-01',
-    )
-    count = Price.objects.filter(
-        product=product, tier=PriceTier.RETAIL, valid_from='2024-01-01'
-    ).count()
-    assert count == 2, (
-        'Two prices with same (product, tier, valid_from) were created. '
-        'Phase 2 should add a unique constraint to prevent this ambiguity.'
-    )
+    with pytest.raises(IntegrityError):
+        Price.objects.create(
+            product=product, tier=PriceTier.RETAIL,
+            price_paisa=80000, valid_from='2024-02-01',
+        )

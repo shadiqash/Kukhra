@@ -1,7 +1,21 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 User = get_user_model()
+
+
+class EverfreshTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Adds role and username to the JWT payload so the frontend can gate routes without an extra API call."""
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['username'] = user.username
+        token['role'] = user.role
+        token['assigned_locations'] = list(
+            user.assigned_locations.values_list('id', flat=True)
+        )
+        return token
 
 
 class UserSerializer(serializers.ModelSerializer):

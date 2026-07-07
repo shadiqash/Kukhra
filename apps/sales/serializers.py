@@ -12,7 +12,14 @@ class CashierSessionSerializer(serializers.ModelSerializer):
             'opened_at', 'closed_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'closed_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'cashier', 'opened_at', 'closed_at', 'created_at', 'updated_at']
+
+    def validate_counter(self, counter):
+        if CashierSession.objects.filter(counter=counter, closed_at__isnull=True).exists():
+            raise serializers.ValidationError(
+                f'Counter "{counter}" already has an open session. Close it before opening a new one.'
+            )
+        return counter
 
 
 class CloseSessionSerializer(serializers.Serializer):

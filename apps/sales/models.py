@@ -36,6 +36,15 @@ class CashierSession(BaseModel):
     opened_at             = models.DateTimeField()
     closed_at             = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['counter'],
+                condition=models.Q(closed_at__isnull=True),
+                name='unique_open_session_per_counter',
+            ),
+        ]
+
     def close(self, closing_counted_paisa: int) -> None:
         if self.closed_at is not None:
             raise RuntimeError(f'CashierSession #{self.pk} is already closed.')
@@ -72,17 +81,63 @@ class Order(BaseModel):
         Each movement carries a negative qty — stock leaves the fulfilled_location.
         ref_id on the movements points back to this Order's pk.
 
+        Concurrency: acquires a row-level lock on fulfilled_location via
+        select_for_update() before computing stock. Two cashiers selling the same
+        product at the same outlet therefore serialize here — the second reads the
+        stock AFTER the first's sale movements have committed, so the check is accurate.
+
+        Raises RuntimeError('Insufficient stock …') if any line cannot be filled.
+
         Lot is intentionally left null on sale movements for Phase 1.
         FIFO/LIFO lot allocation belongs in Phase 2.
         """
+        from django.db.models import Sum
+        from apps.locations.models import Location
+
         if self.status != OrderStatus.PENDING:
             raise RuntimeError(
                 f'Order #{self.pk} is {self.status!r}; only pending orders can be fulfilled.'
             )
-        for line in self.lines.select_related('product'):
+
+        # Lock the location row so concurrent fulfill() calls at the same outlet
+        # cannot interleave between the stock check and the movement INSERT.
+        location = Location.objects.select_for_update().get(pk=self.fulfilled_location_id)
+
+        lines = list(self.lines.select_related('product'))
+
+        if lines:
+            product_ids = [l.product_id for l in lines]
+            stock_rows = (
+                StockMovement.objects
+                .filter(product_id__in=product_ids, location=location)
+                .values('product_id')
+                .annotate(total_kg=Sum('qty_kg'), total_pieces=Sum('qty_pieces'))
+            )
+            stock_kg     = {r['product_id']: r['total_kg']     for r in stock_rows}
+            stock_pieces = {r['product_id']: r['total_pieces'] for r in stock_rows}
+
+            shortfalls = []
+            for line in lines:
+                pid = line.product_id
+                if line.qty_kg > Decimal('0'):
+                    have = stock_kg.get(pid) or Decimal('0')
+                    if have < line.qty_kg:
+                        shortfalls.append(
+                            f'{line.product.name}: need {line.qty_kg} kg, have {have} kg'
+                        )
+                if line.qty_pieces > 0:
+                    have = stock_pieces.get(pid) or 0
+                    if have < line.qty_pieces:
+                        shortfalls.append(
+                            f'{line.product.name}: need {line.qty_pieces} pcs, have {have} pcs'
+                        )
+            if shortfalls:
+                raise RuntimeError('Insufficient stock — ' + '; '.join(shortfalls))
+
+        for line in lines:
             StockMovement.objects.create(
                 product=line.product,
-                location=self.fulfilled_location,
+                location=location,
                 lot=None,
                 type=MovementType.SALE,
                 qty_kg=-line.qty_kg,

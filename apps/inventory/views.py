@@ -1,5 +1,6 @@
 from django.db.models import Q
 from rest_framework import mixins, status, viewsets
+from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -27,6 +28,9 @@ class StockMovementViewSet(
     serializer_class = StockMovementSerializer
     permission_classes = [IsInventoryStaff, OutletManagerReadOnly]
 
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
     def get_queryset(self):
         qs = StockMovement.objects.select_related('product', 'location', 'lot', 'user').order_by('created_at')
         product_id = self.request.query_params.get('product')
@@ -41,8 +45,15 @@ class StockMovementViewSet(
         return qs
 
 
-class StockTransferViewSet(viewsets.ModelViewSet):
+class StockTransferViewSet(
+    CreateModelMixin,
+    ListModelMixin,
+    RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
     """
+    Transfer headers are immutable once created — status transitions only via
+    the confirm-receipt action. PUT/PATCH/DELETE are intentionally excluded.
     Outlet managers see transfers where their location appears on either end (read-only).
     """
     serializer_class = StockTransferSerializer
@@ -73,8 +84,10 @@ class StockQueryView(viewsets.ViewSet):
     """
     GET /api/stock/?product=<id>&location=<id>
     Outlet managers may only query locations in their assigned set.
+    Returns a single stock dict, not a list — pagination is not applicable.
     """
     permission_classes = [IsInventoryStaff, OutletManagerReadOnly]
+    pagination_class = None  # single-row response, not a queryset list
 
     def list(self, request):
         product_id = request.query_params.get('product')

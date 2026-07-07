@@ -59,7 +59,8 @@ class InvoiceLineViewSet(
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
-            return [IsSalesOrCustomer(), OutletManagerReadOnly()]
+            # Rule 7: cashier has NO billing access. IsInvoiceReader excludes CASHIER.
+            return [IsInvoiceReader(), OutletManagerReadOnly()]
         return [IsFinanceStaff()]
 
     def get_queryset(self):

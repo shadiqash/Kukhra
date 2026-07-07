@@ -67,7 +67,7 @@ def test_alert_when_stock_below_threshold(chicken, warehouse, user):
     assert len(result['alerts']) == 1
     assert result['alerts'][0]['product_id'] == chicken.pk
     assert result['alerts'][0]['location_id'] == warehouse.pk
-    assert result['alerts'][0]['total_kg'] == pytest.approx(5.0)
+    assert result['alerts'][0]['total_kg'] == Decimal('5.000')
 
 
 @pytest.mark.django_db
@@ -97,7 +97,7 @@ def test_net_stock_used_not_gross(chicken, warehouse, user):
     add_stock(chicken, warehouse, user, -9)   # net = 6, below threshold
     result = low_stock_alert()
     assert len(result['alerts']) == 1
-    assert result['alerts'][0]['total_kg'] == pytest.approx(6.0)
+    assert result['alerts'][0]['total_kg'] == Decimal('6.000')
 
 
 @pytest.mark.django_db

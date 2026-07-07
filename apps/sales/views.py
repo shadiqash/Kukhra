@@ -1,3 +1,5 @@
+from django.db.models import Count, Sum
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -40,6 +42,9 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(counter__location__in=loc_ids)
         return qs
 
+    def perform_create(self, serializer):
+        serializer.save(cashier=self.request.user, opened_at=timezone.now())
+
     @action(detail=True, methods=['post'], url_path='close')
     def close(self, request, pk=None):
         session = self.get_object()
@@ -50,6 +55,33 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
         except RuntimeError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CashierSessionSerializer(session).data)
+
+    @action(detail=True, methods=['get'], url_path='summary')
+    def summary(self, request, pk=None):
+        session = self.get_object()
+        agg = session.orders.aggregate(
+            sales_count=Count('id'),
+            sales_total=Sum('total_paisa'),
+        )
+        payment_rows = list(
+            Payment.objects
+            .filter(order__session=session)
+            .values('method')
+            .annotate(total=Sum('amount_paisa'), count=Count('id'))
+        )
+        cash_sales = next((r['total'] for r in payment_rows if r['method'] == 'cash'), 0) or 0
+        variance = (session.closing_counted_paisa or 0) - (session.opening_float_paisa + cash_sales)
+        return Response({
+            'opening_float_paisa': session.opening_float_paisa,
+            'closing_counted_paisa': session.closing_counted_paisa,
+            'sales_count': agg['sales_count'] or 0,
+            'sales_total_paisa': agg['sales_total'] or 0,
+            'payment_breakdown': payment_rows,
+            'cash_sales_paisa': cash_sales,
+            'variance_paisa': variance,
+            'opened_at': session.opened_at,
+            'closed_at': session.closed_at,
+        })
 
 
 class OrderViewSet(viewsets.ModelViewSet):

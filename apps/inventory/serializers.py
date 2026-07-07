@@ -11,7 +11,9 @@ class StockMovementSerializer(serializers.ModelSerializer):
             'qty_kg', 'qty_pieces', 'ref_id', 'user',
             'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        # `user` is stamped from the request in the viewset — a client must
+        # never attribute a ledger row to someone else.
+        read_only_fields = ['id', 'user', 'created_at']
 
     def update(self, instance, validated_data):
         raise serializers.ValidationError('StockMovement is append-only; updates are not permitted.')

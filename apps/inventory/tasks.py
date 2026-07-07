@@ -33,7 +33,7 @@ def low_stock_alert():
         alerts.append({
             'product_id': row['product_id'],
             'location_id': row['location_id'],
-            'total_kg': float(row['total_kg']),
+            'total_kg': row['total_kg'],   # Decimal — never float
         })
 
     logger.info('low_stock_alert: checked %d pair(s), %d alert(s)', len(pairs), len(alerts))

@@ -73,10 +73,20 @@ def add_line(order, product, price, qty_kg=Decimal('0'), qty_pieces=0):
     )
 
 
+@pytest.fixture
+def seed_stock(db, outlet, product, cashier):
+    """Seed a large production movement so fulfill() stock-check passes."""
+    StockMovement.objects.create(
+        product=product, location=outlet,
+        type=MovementType.PRODUCTION, qty_kg=Decimal('1000.000'),
+        qty_pieces=1000, user=cashier,
+    )
+
+
 # ── Core invariant: one sale movement per line ────────────────────────────────
 
 @pytest.mark.django_db
-def test_fulfill_creates_one_movement_per_line(order, product, price, cashier, outlet):
+def test_fulfill_creates_one_movement_per_line(seed_stock, order, product, price, cashier, outlet):
     add_line(order, product, price, qty_kg=Decimal('2.000'))
     order.fulfill(cashier)
     movements = StockMovement.objects.filter(ref_id=order.pk, type=MovementType.SALE)
@@ -87,7 +97,7 @@ def test_fulfill_creates_one_movement_per_line(order, product, price, cashier, o
 
 
 @pytest.mark.django_db
-def test_sale_movement_qty_is_negative(order, product, price, cashier):
+def test_sale_movement_qty_is_negative(seed_stock, order, product, price, cashier):
     add_line(order, product, price, qty_kg=Decimal('3.000'))
     order.fulfill(cashier)
     m = StockMovement.objects.get(ref_id=order.pk, type=MovementType.SALE)
@@ -95,11 +105,18 @@ def test_sale_movement_qty_is_negative(order, product, price, cashier):
 
 
 @pytest.mark.django_db
-def test_multi_line_order_creates_one_movement_per_line(order, cashier):
+def test_multi_line_order_creates_one_movement_per_line(order, cashier, outlet):
     p2 = Product.objects.create(name='Wings', uom=UoM.KG)
     pr2 = Price.objects.create(product=p2, tier=PriceTier.RETAIL, price_paisa=40000, valid_from='2024-01-01')
     p3 = Product.objects.create(name='Liver', uom=UoM.KG)
     pr3 = Price.objects.create(product=p3, tier=PriceTier.RETAIL, price_paisa=20000, valid_from='2024-01-01')
+
+    # Seed stock for both products before fulfilling
+    for p in (p2, p3):
+        StockMovement.objects.create(
+            product=p, location=outlet,
+            type=MovementType.PRODUCTION, qty_kg=Decimal('100.000'), user=cashier,
+        )
 
     for p, pr, qty in [(p2, pr2, Decimal('1.500')), (p3, pr3, Decimal('0.500'))]:
         add_line(order, p, pr, qty_kg=qty)
@@ -120,7 +137,7 @@ def test_sale_movement_reduces_location_stock(order, product, price, cashier, ou
 
 
 @pytest.mark.django_db
-def test_sale_movement_ref_id_points_to_order(order, product, price, cashier):
+def test_sale_movement_ref_id_points_to_order(seed_stock, order, product, price, cashier):
     add_line(order, product, price, qty_kg=Decimal('1.000'))
     order.fulfill(cashier)
     m = StockMovement.objects.get(type=MovementType.SALE)
@@ -133,6 +150,10 @@ def test_sale_movement_ref_id_points_to_order(order, product, price, cashier):
 def test_piece_sale_movement_uses_qty_pieces(order, cashier, outlet):
     p = Product.objects.create(name='Sausage Pack', uom=UoM.PIECE)
     pr = Price.objects.create(product=p, tier=PriceTier.RETAIL, price_paisa=25000, valid_from='2024-01-01')
+    StockMovement.objects.create(
+        product=p, location=outlet,
+        type=MovementType.PRODUCTION, qty_pieces=100, user=cashier,
+    )
     add_line(order, p, pr, qty_pieces=4)
     order.fulfill(cashier)
     m = StockMovement.objects.get(ref_id=order.pk, type=MovementType.SALE)
@@ -143,7 +164,7 @@ def test_piece_sale_movement_uses_qty_pieces(order, cashier, outlet):
 # ── Status transitions ────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_fulfill_sets_status_to_fulfilled(order, product, price, cashier):
+def test_fulfill_sets_status_to_fulfilled(seed_stock, order, product, price, cashier):
     add_line(order, product, price, qty_kg=Decimal('1.000'))
     order.fulfill(cashier)
     order.refresh_from_db()
@@ -151,7 +172,7 @@ def test_fulfill_sets_status_to_fulfilled(order, product, price, cashier):
 
 
 @pytest.mark.django_db
-def test_fulfilling_fulfilled_order_raises(order, product, price, cashier):
+def test_fulfilling_fulfilled_order_raises(seed_stock, order, product, price, cashier):
     add_line(order, product, price, qty_kg=Decimal('1.000'))
     order.fulfill(cashier)
     with pytest.raises(RuntimeError, match='only pending orders'):
@@ -174,7 +195,7 @@ def test_order_linked_to_session(order, session):
 
 
 @pytest.mark.django_db
-def test_payment_recorded_against_order(order, product, price, cashier):
+def test_payment_recorded_against_order(seed_stock, order, product, price, cashier):
     add_line(order, product, price, qty_kg=Decimal('1.000'))
     order.fulfill(cashier)
     Payment.objects.create(

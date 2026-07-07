@@ -227,7 +227,7 @@ def test_outlet_manager_sees_only_their_outlet_invoices(outlet_mgr, sample_invoi
     c = APIClient()
     c.force_authenticate(user=outlet_mgr)
     resp = c.get('/api/invoices/')
-    ids = [row['id'] for row in resp.data]
+    ids = [row['id'] for row in resp.data['results']]
     assert sample_invoice.pk in ids
     assert inv2.pk not in ids
 

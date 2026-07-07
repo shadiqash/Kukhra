@@ -45,6 +45,13 @@ class Price(BaseModel):
 
     class Meta:
         ordering = ['-valid_from']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'tier'],
+                condition=models.Q(valid_to__isnull=True),
+                name='unique_active_price_per_product_tier',
+            ),
+        ]
 
     def delete(self, *args, **kwargs):
         raise RuntimeError(
