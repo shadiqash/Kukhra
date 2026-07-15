@@ -222,9 +222,12 @@ class Payment(BaseModel):
             # database at all — not merely rejected by the serializer that happens to
             # be in front of it today.
             models.CheckConstraint(
+                # sorted(), not list(): GATEWAY_METHODS is a frozenset whose
+                # iteration order is not stable, which makes Django regenerate this
+                # constraint on every makemigrations. Sorting pins it.
                 condition=(
-                    models.Q(method__in=list(GATEWAY_METHODS), intent__isnull=False)
-                    | ~models.Q(method__in=list(GATEWAY_METHODS))
+                    models.Q(method__in=sorted(GATEWAY_METHODS), intent__isnull=False)
+                    | ~models.Q(method__in=sorted(GATEWAY_METHODS))
                 ),
                 name='gateway_payment_requires_verified_intent',
             ),
