@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getProducts, getPrices, getCounters } from '../api'
-import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder } from './offline/db'
-import { createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
+import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder, updatePendingOrder } from './offline/db'
+import { checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
@@ -11,15 +11,11 @@ import Cart from './Cart'
 import PaymentModal from './PaymentModal'
 import ShiftModal from './ShiftModal'
 
-function vatFor(lines) {
-  const taxable = lines
-    .filter((l) => l.tax_class === 'taxable')
-    .reduce((s, l) => s + l.line_total_paisa, 0)
-  return Math.floor((taxable * 13) / 100)
-}
-
+// Prices are VAT-inclusive, so the grand total is just the sum of the line
+// totals — VAT is already contained within each one and is broken out for the
+// receipt/invoice only (see utils/formatters vatForLines).
 function grandTotal(lines) {
-  return lines.reduce((s, l) => s + l.line_total_paisa, 0) + vatFor(lines)
+  return lines.reduce((s, l) => s + l.line_total_paisa, 0)
 }
 
 export default function PosScreen() {
@@ -74,31 +70,66 @@ export default function PosScreen() {
   }, [])
 
   // Sync pending offline orders when back online
+  const syncingRef = useRef(false)
   useEffect(() => {
     async function syncPending() {
-      if (!navigator.onLine) return
-      const pending = await getPendingOrders()
-      for (const p of pending) {
-        try {
-          const { data: createdOrder } = await createOrder(p.order)
-          await Promise.all(
-            p.lines.map((l) =>
-              createOrderLine({
-                order: createdOrder.id,
-                product: l.product_id,
-                price: l.price_id,
-                qty_kg: l.uom === 'kg' ? l.qty : 0,
-                qty_pieces: l.uom === 'piece' ? l.qty : 0,
-                line_total_paisa: l.line_total_paisa,
-              })
-            )
-          )
-          await createPayment({ order: createdOrder.id, ...p.payment })
-          await fulfillOrder(createdOrder.id)
-          await deletePendingOrder(p.localId)
-        } catch {
-          /* leave in queue */
+      if (!navigator.onLine || syncingRef.current) return
+      syncingRef.current = true
+      try {
+        const pending = await getPendingOrders()
+        for (const p of pending) {
+          const linePayloads = p.lines.map((l) => ({
+            product: l.product_id,
+            price: l.price_id,
+            qty_kg: l.uom === 'kg' ? l.qty : 0,
+            qty_pieces: l.uom === 'piece' ? l.qty : 0,
+            line_total_paisa: l.line_total_paisa,
+          }))
+
+          // Once a prior attempt has already created the order server-side,
+          // the atomic checkout can no longer be used (it would create a
+          // second order) — resume the step-by-step replay from whatever it
+          // last completed, tracked on the queued record itself so this
+          // survives across separate sync runs/page reloads.
+          if (!p.createdOrder) {
+            try {
+              // Fast path: one atomic request replays the whole sale server-side.
+              await checkoutOrder({ ...p.order, lines: linePayloads, payments: [p.payment] })
+              await deletePendingOrder(p.localId)
+              continue
+            } catch (err) {
+              // A definite rejection (e.g. insufficient stock) rolled back
+              // cleanly server-side — leave it queued rather than falling
+              // through to the step-by-step replay, which would otherwise
+              // create a stuck, never-fulfillable duplicate order on every
+              // future sync attempt.
+              if (err?.response?.status === 400) continue
+              /* transient/network failure — fall back to the step-by-step replay below */
+            }
+          }
+
+          try {
+            let createdOrder = p.createdOrder
+            if (!createdOrder) {
+              ;({ data: createdOrder } = await createOrder(p.order))
+              await updatePendingOrder(p.localId, { createdOrder })
+            }
+            if (!p.linesDone) {
+              await Promise.all(linePayloads.map((l) => createOrderLine({ order: createdOrder.id, ...l })))
+              await updatePendingOrder(p.localId, { linesDone: true })
+            }
+            if (!p.paymentDone) {
+              await createPayment({ order: createdOrder.id, ...p.payment })
+              await updatePendingOrder(p.localId, { paymentDone: true })
+            }
+            await fulfillOrder(createdOrder.id)
+            await deletePendingOrder(p.localId)
+          } catch {
+            /* leave in queue, resuming from whichever step last completed */
+          }
         }
+      } finally {
+        syncingRef.current = false
       }
     }
     window.addEventListener('online', syncPending)
@@ -249,7 +280,7 @@ export default function PosScreen() {
                   <p className="font-medium text-sm text-text-primary mb-1">{p.name}</p>
                   <p className="text-xs text-text-secondary">
                     {p.uom}
-                    {p.tax_class === 'taxable' && <span className="ml-1 text-amber-600">+VAT</span>}
+                    {p.tax_class === 'taxable' && <span className="ml-1 text-amber-600">incl. VAT</span>}
                   </p>
                   {price ? (
                     <p className="text-brand-primary font-bold text-sm mt-1 font-mono">

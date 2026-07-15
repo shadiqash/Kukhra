@@ -10,9 +10,20 @@ VAT_RATE = Decimal('13') / Decimal('100')
 
 
 def compute_line_vat(line_total_paisa: int, tax_class: str) -> int:
-    """13% VAT in integer paisa; truncates sub-paisa fractions. Returns 0 for exempt lines."""
+    """
+    VAT component of a VAT-INCLUSIVE line total, in integer paisa.
+
+    Shelf prices already contain the 13% VAT (Nepal retail norm), so VAT is
+    *extracted*, never added on top:
+        base = floor(line_total × 100 / 113)
+        vat  = line_total − base
+    A Rs 100 (10000 paisa) taxable line → base 8849, vat 1151. Exempt lines have
+    no VAT. Extracting (not adding) keeps the order total equal to the shelf price
+    the customer actually pays.
+    """
     if tax_class == TaxClass.TAXABLE:
-        return int(Decimal(line_total_paisa) * VAT_RATE)
+        base = line_total_paisa * 100 // 113
+        return line_total_paisa - base
     return 0
 
 
@@ -54,11 +65,19 @@ class Invoice(BaseModel):
         )
 
     def recompute_totals(self) -> None:
-        """Rebuild exempt_paisa / taxable_paisa / vat_paisa / total_paisa from lines."""
+        """
+        Rebuild exempt_paisa / taxable_paisa / vat_paisa / total_paisa from lines.
+
+        Prices are VAT-inclusive, so a taxable line's line_total_paisa already
+        contains its VAT. `taxable_paisa` is the ex-VAT base (line total − VAT),
+        matching the IRD invoice presentation where Taxable + VAT = the inclusive
+        amount. total_paisa therefore equals the sum of all inclusive line totals —
+        the same figure as the order the customer paid, never VAT double-counted.
+        """
         exempt = taxable = vat = 0
         for line in self.lines.all():
             if line.tax_class == TaxClass.TAXABLE:
-                taxable += line.line_total_paisa
+                taxable += line.line_total_paisa - line.vat_paisa   # ex-VAT base
                 vat     += line.vat_paisa
             else:
                 exempt  += line.line_total_paisa

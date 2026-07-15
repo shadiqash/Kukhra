@@ -6,7 +6,7 @@ from apps.accounts.permissions import IsProcurementStaff
 from apps.catalog.models import Product
 from apps.lots.models import Lot
 
-from .models import GoodsReceived, PurchaseOrder
+from .models import GoodsReceived, PurchaseOrder, PurchaseOrderStatus
 from .serializers import (
     GoodsReceiveLineSerializer,
     GoodsReceivedSerializer,
@@ -19,8 +19,34 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
     permission_classes = [IsProcurementStaff]
 
+    def _move(self, request, pk, new_status):
+        po = self.get_object()
+        try:
+            po.transition(new_status)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(PurchaseOrderSerializer(po).data)
+
+    @action(detail=True, methods=['post'], url_path='send')
+    def send(self, request, pk=None):
+        """Draft → Sent. The PO has gone to the supplier."""
+        return self._move(request, pk, PurchaseOrderStatus.SENT)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        """Draft or Sent → Cancelled. A received PO can no longer be cancelled."""
+        return self._move(request, pk, PurchaseOrderStatus.CANCELLED)
+
 
 class GoodsReceivedViewSet(viewsets.ModelViewSet):
+    """
+    A goods receipt is the source document for production movements in an
+    append-only ledger, so it is immutable once written: PUT/PATCH/DELETE are
+    structurally excluded. Editing a receipt's location after it created the
+    movements would let the document contradict the ledger it produced; deleting
+    it would orphan rows that can never be removed. Corrections are new documents.
+    """
+    http_method_names = ['get', 'post', 'head', 'options']
     queryset = GoodsReceived.objects.select_related(
         'purchase_order', 'location', 'received_by', 'lot'
     ).order_by('-received_at')
@@ -66,7 +92,7 @@ class GoodsReceivedViewSet(viewsets.ModelViewSet):
 
         try:
             gr.receive(user=request.user, lines=lines)
-        except Exception as exc:
+        except (ValueError, RuntimeError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(GoodsReceivedSerializer(gr).data, status=status.HTTP_200_OK)

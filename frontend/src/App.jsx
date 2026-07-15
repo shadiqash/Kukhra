@@ -6,6 +6,7 @@ import AdminLayout from './admin/AdminLayout'
 import Dashboard from './admin/Dashboard'
 import Products from './admin/Products'
 import Inventory from './admin/Inventory'
+import StockOnHand from './admin/StockOnHand'
 import Lots from './admin/Lots'
 import Processing from './admin/Processing'
 import Transfers from './admin/Transfers'
@@ -13,6 +14,7 @@ import Procurement from './admin/Procurement'
 import Customers from './admin/Customers'
 import Invoices from './admin/Invoices'
 import SalesReports from './admin/SalesReports'
+import CashReconciliation from './admin/CashReconciliation'
 import Users from './admin/Users'
 import AuditLog from './admin/AuditLog'
 import Settings from './admin/Settings'
@@ -69,6 +71,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="products" element={<Products />} />
+        <Route path="stock" element={<StockOnHand />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="lots" element={<Lots />} />
         <Route path="processing" element={<Processing />} />
@@ -77,6 +80,7 @@ export default function App() {
         <Route path="customers" element={<Customers />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="reports" element={<SalesReports />} />
+        <Route path="cash" element={<CashReconciliation />} />
         {/* superuser-only */}
         <Route path="users" element={<RequireAuth allow={['superuser']}><Users /></RequireAuth>} />
         <Route path="audit" element={<RequireAuth allow={['superuser']}><AuditLog /></RequireAuth>} />
@@ -96,7 +100,14 @@ export default function App() {
         <Route path="flock-log" element={<FlockLog />} />
         <Route path="processing" element={<ProcessingEntry />} />
         <Route path="receive-transfer" element={<ReceiveTransfer />} />
-        <Route path="wastage" element={<Wastage />} />
+        <Route
+          path="wastage"
+          element={
+            <RequireAuth allow={['warehouse']}>
+              <Wastage />
+            </RequireAuth>
+          }
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

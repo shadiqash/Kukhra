@@ -91,22 +91,104 @@ class StockTransfer(BaseModel):
                     )
 
     @transaction.atomic
+    def dispatch(self, lines, user) -> None:
+        """
+        Creates one transfer-out StockMovement per line — negative qty, at from_location.
+        Stock physically leaves the origin the moment the van departs, so the ledger
+        records it here; it does not arrive anywhere until confirm_receipt(). The gap
+        between the two is stock in transit.
+
+        `lines` is an iterable of dicts: product, qty_kg, qty_pieces, lot (optional).
+
+        Concurrency: takes a row-level lock on from_location before reading stock, so
+        two dispatches of the same product cannot both pass the check and oversell —
+        the same guarantee Order.fulfill() gives at an outlet.
+
+        Raises RuntimeError('Insufficient stock …') if any line exceeds what is on hand.
+        """
+        from django.db.models import Sum
+        from apps.locations.models import Location
+
+        lines = list(lines)
+        if not lines:
+            raise RuntimeError('A transfer must carry at least one line.')
+
+        location = Location.objects.select_for_update().get(pk=self.from_location_id)
+
+        product_ids = [l['product'].pk for l in lines]
+        stock_rows = (
+            StockMovement.objects
+            .filter(product_id__in=product_ids, location=location)
+            .values('product_id')
+            .annotate(total_kg=Sum('qty_kg'), total_pieces=Sum('qty_pieces'))
+        )
+        stock_kg     = {r['product_id']: r['total_kg']     for r in stock_rows}
+        stock_pieces = {r['product_id']: r['total_pieces'] for r in stock_rows}
+
+        # Demand is folded per product BEFORE the check. Two lines for the same
+        # product must be compared against stock as their sum — checking each
+        # against the same undecremented snapshot would let 60 kg + 60 kg both
+        # pass against 100 kg on hand and drive the ledger negative.
+        needed = {}
+        for line in lines:
+            product = line['product']
+            entry = needed.setdefault(product.pk, {'product': product, 'kg': Decimal('0'), 'pieces': 0})
+            entry['kg']     += line.get('qty_kg')     or Decimal('0')
+            entry['pieces'] += line.get('qty_pieces') or 0
+
+        shortfalls = []
+        for pid, want in needed.items():
+            product = want['product']
+            if want['kg'] > Decimal('0'):
+                have = stock_kg.get(pid) or Decimal('0')
+                if have < want['kg']:
+                    shortfalls.append(f'{product.name}: need {want["kg"]} kg, have {have} kg')
+            if want['pieces'] > 0:
+                have = stock_pieces.get(pid) or 0
+                if have < want['pieces']:
+                    shortfalls.append(f'{product.name}: need {want["pieces"]} pcs, have {have} pcs')
+        if shortfalls:
+            raise RuntimeError('Insufficient stock — ' + '; '.join(shortfalls))
+
+        for line in lines:
+            StockMovement.objects.create(
+                product=line['product'],
+                location=location,
+                lot=line.get('lot'),
+                type=MovementType.TRANSFER,
+                qty_kg=-(line.get('qty_kg') or Decimal('0')),
+                qty_pieces=-(line.get('qty_pieces') or 0),
+                ref_id=self.pk,
+                user=user,
+            )
+
+    def out_movements(self):
+        """The transfer-out rows that constitute this transfer's line items."""
+        return StockMovement.objects.filter(
+            ref_id=self.pk,
+            type=MovementType.TRANSFER,
+            location=self.from_location,
+        ).select_related('product', 'lot')
+
+    @transaction.atomic
     def confirm_receipt(self, user, received_at=None) -> None:
         """
         Mirrors every transfer-out movement for this transfer as a positive
         transfer-in movement at to_location. Idempotency guard: raises if already received.
+
+        The guard re-reads this row under a lock rather than trusting the in-memory
+        status: two concurrent confirmations would both see 'dispatched' on their own
+        instance and both mirror the movements, landing the stock twice. In an
+        append-only ledger those duplicate rows could never be deleted, only reversed.
+        The second caller now blocks here, then sees 'received' and is rejected.
         """
-        if self.status == TransferStatus.RECEIVED:
+        locked = StockTransfer.objects.select_for_update().get(pk=self.pk)
+        if locked.status == TransferStatus.RECEIVED:
             raise RuntimeError(f'StockTransfer #{self.pk} has already been received.')
 
         ts = received_at or timezone.now()
 
-        out_movements = StockMovement.objects.filter(
-            ref_id=self.pk,
-            type=MovementType.TRANSFER,
-            location=self.from_location,
-        )
-        for m in out_movements:
+        for m in self.out_movements():
             StockMovement.objects.create(
                 product_id=m.product_id,
                 location=self.to_location,

@@ -18,6 +18,9 @@ export function printInvoice(inv) {
       ? `${parseFloat(l.qty_kg).toFixed(3)} kg`
       : `${l.qty_pieces} pcs`
     const taxLabel = l.tax_class === 'taxable' ? 'T' : 'E'
+    // Prices are VAT-inclusive: line_total_paisa already contains the VAT.
+    // "Amount" is the ex-VAT base; "Total" is the inclusive line total.
+    const basePaisa = l.line_total_paisa - l.vat_paisa
     return `
       <tr>
         <td>${i + 1}</td>
@@ -25,9 +28,9 @@ export function printInvoice(inv) {
         <td class="center">${taxLabel}</td>
         <td class="right">${qty}</td>
         <td class="right">${formatMoney(l.unit_paisa)}</td>
-        <td class="right">${formatMoney(l.line_total_paisa)}</td>
+        <td class="right">${formatMoney(basePaisa)}</td>
         <td class="right">${formatMoney(l.vat_paisa)}</td>
-        <td class="right">${formatMoney(l.line_total_paisa + l.vat_paisa)}</td>
+        <td class="right">${formatMoney(l.line_total_paisa)}</td>
       </tr>`
   }).join('')
 
@@ -94,7 +97,7 @@ export function printInvoice(inv) {
       ${lineRows || '<tr><td colspan="8" style="text-align:center;color:#999">No line items</td></tr>'}
     </tbody>
   </table>
-  <p class="tax-note">Tax column: T = Taxable (13% VAT), E = Exempt</p>
+  <p class="tax-note">Tax column: T = Taxable (13% VAT), E = Exempt. Unit prices are inclusive of VAT; Amount shows the VAT-exclusive base.</p>
 
   <table class="totals">
     ${inv.exempt_paisa  > 0 ? `<tr><td>Exempt Amount</td><td class="right">${formatMoney(inv.exempt_paisa)}</td></tr>` : ''}

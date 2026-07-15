@@ -10,8 +10,10 @@ from apps.accounts.permissions import (
     outlet_location_ids,
 )
 
+from django.conf import settings as django_settings
+
 from .models import StockMovement, StockTransfer
-from .queries import current_stock
+from .queries import current_stock, stock_matrix
 from .serializers import StockMovementSerializer, StockTransferSerializer
 
 
@@ -112,3 +114,34 @@ class StockQueryView(viewsets.ViewSet):
 
         result = current_stock(product_id, location_id)
         return Response({'product': product_id, 'location': location_id, **result})
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        """
+        GET /api/stock/summary/?location=<id>
+
+        Stock on hand for every (product, location) pair in one aggregate, so the
+        admin grid does not need N×M single-pair calls. Each row is flagged against
+        LOW_STOCK_THRESHOLD_KG — the same threshold the low_stock_alert task uses.
+        """
+        loc_ids = outlet_location_ids(request.user)
+
+        location_id = request.query_params.get('location')
+        if location_id:
+            try:
+                location_id = int(location_id)
+            except ValueError:
+                return Response({'detail': 'location must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+            if loc_ids is not None and location_id not in loc_ids:
+                return Response(
+                    {'detail': 'Location is not in your assigned outlets.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            loc_ids = [location_id]
+
+        threshold = getattr(django_settings, 'LOW_STOCK_THRESHOLD_KG', 10)
+        rows = stock_matrix(location_ids=loc_ids)
+        for row in rows:
+            row['low_stock'] = row['qty_kg'] < threshold
+
+        return Response({'threshold_kg': threshold, 'results': rows})

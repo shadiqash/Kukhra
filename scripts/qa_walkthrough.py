@@ -273,10 +273,18 @@ check("Add order 3 line B: 0.75kg sausage", r, 201)
 r = post(cashier_h, "orders/" + str(order3_id) + "/fulfill/", {})
 check("Fulfill order 3", r, 200)
 
+# A digital payment with no gateway proof is money nobody can show arrived.
+# It used to be accepted on the cashier's word alone; it must now be refused.
 r = post(cashier_h, "payments/", {
     "order": order3_id, "method": "esewa", "amount_paisa": 140000,
+    "ref": "I promise I paid",
 })
-check("Payment 3a: eSewa 1400", r, 201)
+check("Unverified eSewa payment is rejected (400)", r, 400)
+
+r = post(cashier_h, "payments/", {
+    "order": order3_id, "method": "card", "amount_paisa": 140000,
+})
+check("Payment 3a: card 1400", r, 201)
 
 r = post(cashier_h, "payments/", {
     "order": order3_id, "method": "cash", "amount_paisa": 100000,
@@ -358,28 +366,34 @@ r = post(mgr_h, "invoices/", {
 check("Manager can create invoice", r, 201)
 invoice_id = r.json().get("id") if r.status_code == 201 else None
 
-# Create and dispatch a transfer
+# Create and dispatch a transfer. Lines travel with the dispatch: the transfer-out
+# movements are written server-side, so no manual movement post is needed.
 r = post(mgr_h, "transfers/", {
     "from_location": wh_id,
     "to_location": outlet_id,
     "dispatched_at": datetime.datetime.now().isoformat(),
+    "lines": [{"product": prod_chicken_id, "qty_kg": "15.000"}],
 })
-check("Manager creates transfer (WH → outlet)", r, 201)
+check("Manager creates transfer with lines (WH → outlet, 15kg)", r, 201)
 transfer_id = r.json().get("id") if r.status_code == 201 else None
 
-# Dispatch movement
-r = post(mgr_h, "movements/", {
-    "product": prod_chicken_id, "location": wh_id,
-    "type": "transfer", "qty_kg": "-15.000", "qty_pieces": 0,
-    "ref_id": transfer_id,
+# Oversell guard: cannot dispatch more than is on hand at the source.
+r = post(mgr_h, "transfers/", {
+    "from_location": wh_id,
+    "to_location": outlet_id,
+    "dispatched_at": datetime.datetime.now().isoformat(),
+    "lines": [{"product": prod_chicken_id, "qty_kg": "999999.000"}],
 })
-check("Manager posts dispatch movement (-15kg)", r, 201)
+check("Manager cannot dispatch more stock than on hand (400)", r, 400)
 
-# Immutability: try to delete the movement
-if r.status_code == 201:
-    mv_id = r.json()["id"]
-    r2 = delete(mgr_h, f"movements/{mv_id}/")
-    check("Manager cannot delete a movement (405)", r2, 405)
+# Immutability: try to delete a transfer-out movement
+r = get(mgr_h, f"movements/?location={wh_id}&type=transfer")
+if r.status_code == 200:
+    transfer_movements = rows(r)
+    if transfer_movements:
+        mv_id = transfer_movements[-1]["id"]
+        r2 = delete(mgr_h, f"movements/{mv_id}/")
+        check("Manager cannot delete a movement (405)", r2, 405)
 
 # Immutability: try to patch a price
 r2 = patch(mgr_h, f"prices/{price_chicken_id}/", {"price_paisa": 1})

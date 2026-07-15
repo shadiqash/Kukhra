@@ -14,7 +14,10 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             'unit_paisa', 'line_total_paisa', 'vat_paisa',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'product_name', 'created_at', 'updated_at']
+        # tax_class snapshots the product and vat is computed from it — both are
+        # decided server-side, never taken from the client. Otherwise a caller could
+        # label a taxable good exempt, or under-report VAT, on the tax document itself.
+        read_only_fields = ['id', 'product_name', 'tax_class', 'vat_paisa', 'created_at', 'updated_at']
 
 
 class InvoiceSerializer(serializers.ModelSerializer):

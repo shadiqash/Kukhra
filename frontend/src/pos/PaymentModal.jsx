@@ -1,21 +1,26 @@
-import { useRef, useState } from 'react'
-import { createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import {
+  checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder,
+  createPaymentIntent, verifyPaymentIntent,
+} from '../api'
 import { cachePendingOrder } from './offline/db'
 import { printReceipt } from './printReceipt'
-import { formatMoney } from '../utils/formatters'
+import { formatMoney, vatForLines } from '../utils/formatters'
 
-const METHODS = ['cash', 'card', 'esewa', 'khalti']
+const METHODS = ['cash', 'card', 'fonepay']
 
-function vatFor(lines) {
-  const taxable = lines.filter(l => l.tax_class === 'taxable').reduce((s, l) => s + l.line_total_paisa, 0)
-  return Math.floor((taxable * 13) / 100)
-}
+// Settled by a gateway, so they cannot be taken offline and cannot be asserted
+// by this screen — the server must hear it from the gateway itself.
+const GATEWAY_METHODS = new Set(['fonepay', 'esewa', 'khalti'])
 
 // Renders as an inline panel state — no overlay, no fixed/backdrop.
 export default function PaymentModal({ lines, session, locationId, outletName, onSuccess, onCancel }) {
+  // Prices are VAT-inclusive: the customer pays the subtotal, and VAT is the
+  // portion already contained within it (shown for information, never added on
+  // top). The order total the backend validates must equal the sum of line totals.
   const subtotal   = lines.reduce((s, l) => s + l.line_total_paisa, 0)
-  const vat        = vatFor(lines)
-  const total      = subtotal + vat
+  const vat        = vatForLines(lines)
+  const total      = subtotal
 
   const [method, setMethod]         = useState('cash')
   const [ref, setRef]               = useState('')
@@ -24,16 +29,93 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
   const [error, setError]           = useState('')
   const [doneOrder, setDoneOrder]   = useState(null)
 
+  // The QR leg: an intent is money the customer has been asked for but has not
+  // necessarily paid. It becomes spendable only when the server says the gateway
+  // confirmed it.
+  const [intent, setIntent]         = useState(null)
+  const [polling, setPolling]       = useState(false)
+  const [online, setOnline]         = useState(navigator.onLine)
+
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine)
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+
+  const isGateway = GATEWAY_METHODS.has(method)
+  const verified = intent?.status === 'verified'
+
   const tenderedPaisa = method === 'cash' ? Math.round(parseFloat(tendered || 0) * 100) : total
   const changePaisa   = method === 'cash' && tenderedPaisa > 0 ? Math.max(0, tenderedPaisa - total) : 0
 
+  // A gateway payment cannot be verified without a network, so it must not be
+  // offered offline — queueing one would queue money nobody can prove was paid.
+  const methodBlockedOffline = isGateway && !online
+
+  async function startQr() {
+    setLoading(true)
+    setError('')
+    try {
+      const { data } = await createPaymentIntent({
+        gateway: 'fonepay',
+        amount_paisa: total,
+        fulfilled_location: locationId,
+        session: session?.id ?? null,
+      })
+      setIntent(data)
+      setPolling(true)
+    } catch (e) {
+      setError(e?.response?.data?.detail ?? 'Could not reach the payment gateway. Take cash or card.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Poll until the gateway confirms. Terminal states stop the loop.
+  useEffect(() => {
+    if (!polling || !intent) return
+    let cancelled = false
+
+    const tick = setInterval(async () => {
+      try {
+        const { data } = await verifyPaymentIntent(intent.id)
+        if (cancelled) return
+        setIntent(data)
+        if (data.status !== 'initiated') {
+          setPolling(false)
+          if (data.status === 'failed') {
+            setError(data.failure_reason || 'Payment failed. Ask the customer to try again.')
+          }
+        }
+      } catch {
+        /* transient — keep polling; the cashier can always cancel */
+      }
+    }, 2500)
+
+    return () => { cancelled = true; clearInterval(tick) }
+  }, [polling, intent])
+
+  function cancelQr() {
+    setIntent(null)
+    setPolling(false)
+    setError('')
+  }
+
   // Progress survives a mid-submit failure so a retry resumes from the failed
   // step instead of creating a duplicate order/payment.
-  const progress = useRef({ order: null, linesDone: false, paymentDone: false })
+  const progress = useRef({ order: null, linesDone: false, paymentDone: false, triedCheckout: false })
 
   async function submit() {
     if (method === 'cash' && tenderedPaisa < total) {
       setError('Cash tendered is less than total')
+      return
+    }
+    if (isGateway && !verified) {
+      setError('This payment has not been confirmed by the gateway yet.')
       return
     }
     setLoading(true)
@@ -45,11 +127,56 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
         source: 'counter',
         total_paisa: total,
       }
+      const linePayloads = lines.map((l) => ({
+        product: l.product_id,
+        price: l.price_id,
+        qty_kg: l.uom === 'kg' ? l.qty : 0,
+        qty_pieces: l.uom === 'piece' ? l.qty : 0,
+        line_total_paisa: l.line_total_paisa,
+      }))
+      const paymentPayload = {
+        method,
+        amount_paisa: total,
+        ref: ref || null,
+        ...(isGateway && { intent: intent.id }),
+      }
 
       if (!navigator.onLine && !progress.current.order) {
-        await cachePendingOrder({ order, lines, payment: { method, ref, amount_paisa: total } })
+        // Cash and card can be reconciled later from the paper trail. A gateway
+        // payment cannot — there is no proof to queue — so it is never taken offline.
+        if (isGateway) {
+          setError('The network is down. Take cash or card instead.')
+          return
+        }
+        await cachePendingOrder({ order, lines, payment: paymentPayload })
         onSuccess({ offline: true })
         return
+      }
+
+      // Fast path: one atomic request creates the order, its lines, its
+      // payment, and fulfills it server-side in a single transaction — no
+      // partial order possible. Only tried on the first attempt; once the
+      // step-by-step fallback below has made progress, a retry must resume
+      // that flow instead (re-running checkout here would double-create).
+      if (!progress.current.order && !progress.current.triedCheckout) {
+        progress.current.triedCheckout = true
+        try {
+          const { data: createdOrder } = await checkoutOrder({
+            ...order,
+            lines: linePayloads,
+            payments: [paymentPayload],
+          })
+          setDoneOrder(createdOrder)
+          return
+        } catch (err) {
+          if (err?.response?.status === 400) {
+            // A definite rejection (e.g. insufficient stock) — surface it
+            // directly; the step-by-step flow would only hit the same wall.
+            setError(err.response.data?.detail ?? 'Payment failed. Check connection and try again.')
+            return
+          }
+          // Network/server error — fall back to the resumable flow below.
+        }
       }
 
       if (!progress.current.order) {
@@ -60,27 +187,13 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
 
       if (!progress.current.linesDone) {
         await Promise.all(
-          lines.map((l) =>
-            createOrderLine({
-              order: createdOrder.id,
-              product: l.product_id,
-              price: l.price_id,
-              qty_kg: l.uom === 'kg' ? l.qty : 0,
-              qty_pieces: l.uom === 'piece' ? l.qty : 0,
-              line_total_paisa: l.line_total_paisa,
-            })
-          )
+          linePayloads.map((l) => createOrderLine({ order: createdOrder.id, ...l }))
         )
         progress.current.linesDone = true
       }
 
       if (!progress.current.paymentDone) {
-        await createPayment({
-          order: createdOrder.id,
-          method,
-          amount_paisa: total,
-          ref: ref || null,
-        })
+        await createPayment({ order: createdOrder.id, ...paymentPayload })
         progress.current.paymentDone = true
       }
 
@@ -195,14 +308,62 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
         </div>
       )}
 
-      {method !== 'cash' && (
+      {method === 'card' && (
         <input
           type="text"
-          placeholder="Reference / transaction ID"
+          placeholder="Card slip number (optional)"
           value={ref}
           onChange={(e) => setRef(e.target.value)}
           className="w-full border border-brand-border rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand-primary"
         />
+      )}
+
+      {isGateway && (
+        <div className="mb-4">
+          {methodBlockedOffline ? (
+            <p className="text-sm text-brand-danger bg-red-50 rounded-lg px-3 py-3">
+              QR payment needs a connection — it cannot be confirmed offline.
+              Take cash or card instead.
+            </p>
+          ) : !intent ? (
+            <button
+              onClick={startQr}
+              disabled={loading}
+              className="w-full border-[1.5px] border-brand-primary text-brand-primary py-3 rounded-lg text-sm font-semibold disabled:opacity-50"
+            >
+              {loading ? 'Generating QR…' : `Show QR for ${formatMoney(total)}`}
+            </button>
+          ) : (
+            <div className="border-[1.5px] border-brand-border rounded-lg p-4 flex flex-col items-center gap-3">
+              {/* The QR string comes from the gateway; it encodes the amount we asked for. */}
+              <div className="font-mono text-[10px] break-all text-center text-text-secondary bg-brand-surface rounded p-3 w-full">
+                {intent.qr_payload}
+              </div>
+
+              {verified ? (
+                <p className="text-sm font-semibold text-brand-success">
+                  ✓ Paid — {formatMoney(intent.amount_paisa)} confirmed by the gateway
+                </p>
+              ) : intent.status === 'failed' ? (
+                <p className="text-sm font-semibold text-brand-danger">
+                  Payment failed — nothing was taken
+                </p>
+              ) : (
+                <p className="text-sm text-text-secondary flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  Waiting for the customer to pay…
+                </p>
+              )}
+
+              <button
+                onClick={cancelQr}
+                className="text-xs text-text-secondary hover:text-brand-danger underline"
+              >
+                Cancel this QR
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="flex gap-2 mt-auto">
@@ -211,10 +372,10 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
         </button>
         <button
           onClick={submit}
-          disabled={loading}
-          className="flex-1 bg-brand-primary hover:bg-brand-primaryHover text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-50"
+          disabled={loading || (isGateway && !verified)}
+          className="flex-1 bg-brand-primary hover:bg-brand-primaryHover text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Processing…' : 'Confirm Payment'}
+          {loading ? 'Processing…' : isGateway && !verified ? 'Awaiting payment' : 'Confirm Payment'}
         </button>
       </div>
     </div>

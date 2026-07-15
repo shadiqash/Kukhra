@@ -12,11 +12,30 @@ class PurchaseOrderStatus(models.TextChoices):
     CANCELLED = 'cancelled', 'Cancelled'
 
 
+# Explicit whitelist — a PO may only move along these edges.
+VALID_PO_TRANSITIONS: dict[str, set[str]] = {
+    PurchaseOrderStatus.DRAFT:     {PurchaseOrderStatus.SENT, PurchaseOrderStatus.CANCELLED},
+    PurchaseOrderStatus.SENT:      {PurchaseOrderStatus.RECEIVED, PurchaseOrderStatus.CANCELLED},
+    PurchaseOrderStatus.RECEIVED:  set(),   # goods are in; the ledger has moved
+    PurchaseOrderStatus.CANCELLED: set(),
+}
+
+
 class PurchaseOrder(BaseModel):
     supplier    = models.ForeignKey('partners.Supplier', on_delete=models.PROTECT, related_name='purchase_orders')
     status      = models.CharField(max_length=20, choices=PurchaseOrderStatus.choices, default=PurchaseOrderStatus.DRAFT)
     total_paisa = models.PositiveBigIntegerField(default=0)   # integer paisa — never float
     notes       = models.TextField(blank=True)
+
+    def transition(self, new_status: str) -> None:
+        allowed = VALID_PO_TRANSITIONS.get(self.status, set())
+        if new_status not in allowed:
+            raise ValueError(
+                f'PO #{self.pk} cannot move from {self.status!r} to {new_status!r}. '
+                f'Allowed: {sorted(allowed) or "none — this PO is final"}.'
+            )
+        self.status = new_status
+        self.save(update_fields=['status', 'updated_at'])
 
     def __str__(self):
         return f'PO #{self.pk} — {self.supplier} [{self.status}]'
@@ -54,7 +73,20 @@ class GoodsReceived(BaseModel):
 
         Returns the list of created StockMovements.
         Marks the PO as received (all-or-nothing for Phase 1).
+
+        Guards: a cancelled PO has no goods coming, and an already-received PO must
+        not be received twice — the movements are append-only, so a double receipt
+        would permanently double the stock.
         """
+        if not lines:
+            raise ValueError('A goods receipt must record at least one line.')
+
+        po = PurchaseOrder.objects.select_for_update().get(pk=self.purchase_order_id)
+        if po.status == PurchaseOrderStatus.CANCELLED:
+            raise ValueError(f'PO #{po.pk} was cancelled; its goods cannot be received.')
+        if po.status == PurchaseOrderStatus.RECEIVED:
+            raise ValueError(f'PO #{po.pk} has already been received.')
+
         movements = []
         for line in lines:
             m = StockMovement.objects.create(
@@ -69,8 +101,13 @@ class GoodsReceived(BaseModel):
             )
             movements.append(m)
 
-        self.purchase_order.status = PurchaseOrderStatus.RECEIVED
-        self.purchase_order.save(update_fields=['status', 'updated_at'])
+        self.received_by = user
+        self.save(update_fields=['received_by', 'updated_at'])
+
+        # Go through the whitelist, never around it. Assigning RECEIVED directly would
+        # let a draft PO — one never sent to a supplier — write stock into the ledger,
+        # which is the one transition the state machine must not allow to be skipped.
+        po.transition(PurchaseOrderStatus.RECEIVED)
         return movements
 
     def __str__(self):

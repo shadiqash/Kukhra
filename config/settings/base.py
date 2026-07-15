@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'apps.lots',
     'apps.processing',
     'apps.inventory',
+    'apps.payments',
     'apps.procurement',
     'apps.sales',
     'apps.billing',
@@ -185,6 +186,24 @@ CELERY_BEAT_SCHEDULE = {
 LOW_STOCK_THRESHOLD_KG  = int(os.environ.get('LOW_STOCK_THRESHOLD_KG', 10))
 LOT_EXPIRY_ALERT_DAYS   = int(os.environ.get('LOT_EXPIRY_ALERT_DAYS', 3))
 CBMS_SYNC_BATCH_SIZE    = int(os.environ.get('CBMS_SYNC_BATCH_SIZE', 50))
+
+# ── Payment gateways ──────────────────────────────────────────────────────────
+# Which gateways this deployment will talk to. 'mock' settles payments on command
+# and must never appear here in production — it is enabled only in dev/test settings.
+PAYMENT_GATEWAYS = [
+    g.strip() for g in os.environ.get('PAYMENT_GATEWAYS', 'fonepay').split(',') if g.strip()
+]
+
+# The secret key signs every request and must never leave the server — not into the
+# POS bundle, not into a log line. Absent config makes the gateway raise rather than
+# silently fall back to accepting unverified money.
+FONEPAY = {
+    'BASE_URL':      os.environ.get('FONEPAY_BASE_URL', ''),
+    'MERCHANT_CODE': os.environ.get('FONEPAY_MERCHANT_CODE', ''),
+    'USERNAME':      os.environ.get('FONEPAY_USERNAME', ''),
+    'PASSWORD':      os.environ.get('FONEPAY_PASSWORD', ''),
+    'SECRET_KEY':    os.environ.get('FONEPAY_SECRET_KEY', ''),
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

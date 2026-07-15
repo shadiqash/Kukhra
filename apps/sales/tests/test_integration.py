@@ -10,11 +10,12 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Role, User
-from apps.billing.models import CbmsStatus, CreditNote, Invoice, InvoiceLine
+from apps.billing.models import CbmsStatus, CreditNote, Invoice, InvoiceLine, compute_line_vat
 from apps.catalog.models import Price, PriceTier, Product, TaxClass, UoM
 from apps.inventory.models import MovementType, StockMovement, StockTransfer
 from apps.inventory.queries import current_stock
 from apps.locations.models import Counter, Location, LocationType
+from apps.payments.models import Gateway, IntentStatus, PaymentIntent
 from apps.sales.models import (
     CashierSession, Order, OrderLine, OrderSource, OrderStatus, Payment, PaymentMethod,
 )
@@ -258,24 +259,14 @@ def test_transfer_dispatch_creates_negative_at_source(
     )
 
     c = client_for(manager)
+    # Dispatch carries its lines; the negative movements at source are written for us.
     transfer_resp = c.post('/api/transfers/', {
         'from_location': warehouse.pk,
         'to_location': outlet.pk,
         'dispatched_at': timezone.now().isoformat(),
+        'lines': [{'product': product_kg.pk, 'qty_kg': '8.000'}],
     }, format='json')
     assert transfer_resp.status_code == 201, transfer_resp.data
-    transfer_id = transfer_resp.data['id']
-
-    # Dispatch movement (negative at source)
-    c.post('/api/movements/', {
-        'product': product_kg.pk,
-        'location': warehouse.pk,
-        'type': MovementType.TRANSFER,
-        'qty_kg': '-8.000',
-        'qty_pieces': 0,
-        'ref_id': transfer_id,
-        'user': manager.pk,
-    }, format='json')
 
     assert current_stock(product_kg.pk, warehouse.pk)['qty_kg'] == Decimal('12.000')
     assert current_stock(product_kg.pk, outlet.pk)['qty_kg'] == Decimal('0')
@@ -337,27 +328,29 @@ def test_invoice_tax_split_exempt_and_taxable(outlet, session, manager, product_
         tax_class=TaxClass.EXEMPT, qty_kg=Decimal('1.000'), qty_pieces=0,
         unit_paisa=75000, line_total_paisa=exempt_line_total, vat_paisa=0,
     )
+    # VAT-inclusive: extract, don't add. 100000 → vat 11505, base 88495.
+    expected_vat = compute_line_vat(taxable_line_total, TaxClass.TAXABLE)  # 11505
     InvoiceLine.objects.create(
         invoice=inv, product=product_taxable, price=price_taxable,
         tax_class=TaxClass.TAXABLE, qty_kg=Decimal('1.000'), qty_pieces=0,
         unit_paisa=100000, line_total_paisa=taxable_line_total,
-        vat_paisa=int(Decimal(taxable_line_total) * Decimal('0.13')),
+        vat_paisa=expected_vat,
     )
     inv.recompute_totals()
     inv.refresh_from_db()
 
-    expected_vat = int(Decimal('100000') * Decimal('0.13'))  # 13000
     assert inv.exempt_paisa == 75000
-    assert inv.taxable_paisa == 100000
+    assert inv.taxable_paisa == taxable_line_total - expected_vat  # 88495 ex-VAT base
     assert inv.vat_paisa == expected_vat
-    assert inv.total_paisa == 75000 + 100000 + expected_vat
+    # total reconciles to the inclusive amount, VAT not added on top
+    assert inv.total_paisa == 75000 + 100000
 
     # Verify via API
     c = client_for(manager)
     resp = c.get(f'/api/invoices/{inv.pk}/')
     assert resp.status_code == 200
     assert resp.data['exempt_paisa'] == 75000
-    assert resp.data['taxable_paisa'] == 100000
+    assert resp.data['taxable_paisa'] == taxable_line_total - expected_vat
     assert resp.data['vat_paisa'] == expected_vat
 
 
@@ -488,13 +481,21 @@ def test_z_report_cash_and_card_split(outlet, counter, cashier_user, product_kg,
     )
     Payment.objects.create(order=o2, method=PaymentMethod.CARD, amount_paisa=80000)
 
-    # Order 3: split cash + eSewa
+    # Order 3: split cash + eSewa. The digital leg carries a verified intent — a
+    # gateway payment without gateway proof is now refused by the database itself.
     o3 = Order.objects.create(
         fulfilled_location=outlet, session=sess,
         source=OrderSource.COUNTER, status=OrderStatus.FULFILLED, total_paisa=120000,
     )
+    esewa_intent = PaymentIntent.objects.create(
+        gateway=Gateway.MOCK, status=IntentStatus.CONSUMED, amount_paisa=50000,
+        location=outlet, session=sess, created_by=cashier_user,
+        gateway_ref='TEST-TXN', verified_at=timezone.now(),
+    )
     Payment.objects.create(order=o3, method=PaymentMethod.CASH, amount_paisa=70000)
-    Payment.objects.create(order=o3, method=PaymentMethod.ESEWA, amount_paisa=50000)
+    Payment.objects.create(
+        order=o3, method=PaymentMethod.ESEWA, amount_paisa=50000, intent=esewa_intent,
+    )
 
     sess.close(closing_counted_paisa=200000)
 

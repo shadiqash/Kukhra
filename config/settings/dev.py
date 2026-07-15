@@ -15,3 +15,6 @@ INTERNAL_IPS = ['127.0.0.1']
 # Local dev and the test suite log in freely; the 10/min brute-force
 # throttle only makes sense against the public internet.
 REST_FRAMEWORK = {**REST_FRAMEWORK, 'DEFAULT_THROTTLE_RATES': {'login': '1000/min'}}  # noqa: F405
+
+# Mock gateway is dev/test only — it settles payments on command.
+PAYMENT_GATEWAYS = ['fonepay', 'mock']

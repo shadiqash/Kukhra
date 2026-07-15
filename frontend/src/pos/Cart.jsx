@@ -1,4 +1,4 @@
-import { formatMoney } from '../utils/formatters'
+import { formatMoney, vatForLines } from '../utils/formatters'
 
 export default function Cart({ lines, onRemove, onQtyChange }) {
   if (lines.length === 0) {
@@ -15,8 +15,10 @@ export default function Cart({ lines, onRemove, onQtyChange }) {
   const taxablePaisa = lines
     .filter((l) => l.tax_class === 'taxable')
     .reduce((s, l) => s + l.line_total_paisa, 0)
-  const vatPaisa = Math.floor((taxablePaisa * 13) / 100)
-  const grandTotal = exemptPaisa + taxablePaisa + vatPaisa
+  // Prices are VAT-inclusive: VAT is the portion already inside taxablePaisa,
+  // shown for information. The grand total is the inclusive subtotal, not + VAT.
+  const vatPaisa = vatForLines(lines)
+  const grandTotal = exemptPaisa + taxablePaisa
 
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
@@ -28,16 +30,20 @@ export default function Cart({ lines, onRemove, onQtyChange }) {
               <p className="text-xs text-text-secondary">
                 {formatMoney(line.price_paisa)} / {line.uom}
                 {line.tax_class === 'taxable' && (
-                  <span className="ml-1 text-amber-600 font-medium">+VAT</span>
+                  <span className="ml-1 text-amber-600 font-medium">incl. VAT</span>
                 )}
               </p>
             </div>
             <input
               type="number"
-              min="0.1"
-              step="0.1"
+              min={line.uom === 'piece' ? '1' : '0.1'}
+              step={line.uom === 'piece' ? '1' : '0.1'}
               value={line.qty}
-              onChange={(e) => onQtyChange(idx, parseFloat(e.target.value) || 0)}
+              onChange={(e) => {
+                const raw = parseFloat(e.target.value) || 0
+                // Piece products are integer-only; weighed goods keep decimals.
+                onQtyChange(idx, line.uom === 'piece' ? Math.floor(raw) : raw)
+              }}
               className="w-16 border border-brand-border rounded px-1 py-0.5 text-sm text-center"
             />
             <span className="w-20 text-right text-sm font-medium">
@@ -63,13 +69,13 @@ export default function Cart({ lines, onRemove, onQtyChange }) {
         )}
         {taxablePaisa > 0 && (
           <div className="flex justify-between text-text-secondary">
-            <span>Taxable</span>
+            <span>Taxable (incl. VAT)</span>
             <span>{formatMoney(taxablePaisa)}</span>
           </div>
         )}
         {vatPaisa > 0 && (
           <div className="flex justify-between text-amber-700 font-medium">
-            <span>VAT (13%)</span>
+            <span>of which VAT (13%)</span>
             <span>{formatMoney(vatPaisa)}</span>
           </div>
         )}

@@ -22,10 +22,11 @@ class OrderStatus(models.TextChoices):
 
 
 class PaymentMethod(models.TextChoices):
-    CASH   = 'cash',   'Cash'
-    CARD   = 'card',   'Card'
-    ESEWA  = 'esewa',  'eSewa'
-    KHALTI = 'khalti', 'Khalti'
+    CASH    = 'cash',    'Cash'
+    CARD    = 'card',    'Card'
+    FONEPAY = 'fonepay', 'Fonepay QR'
+    ESEWA   = 'esewa',   'eSewa'
+    KHALTI  = 'khalti',  'Khalti'
 
 
 class CashierSession(BaseModel):
@@ -148,6 +149,39 @@ class Order(BaseModel):
         self.status = OrderStatus.FULFILLED
         self.save(update_fields=['status', 'updated_at'])
 
+    @transaction.atomic
+    def cancel(self, user) -> None:
+        """
+        Void an order. A pending order simply moves to CANCELLED. A fulfilled order
+        already took stock off the shelf, so cancelling it posts a reversing
+        StockMovement(type=return) per sale line — the append-only way to undo a
+        sale. The original sale rows are never edited or deleted.
+
+        This is the only sanctioned path to correct a mis-rung sale; it is
+        manager-gated at the API. A cancelled order cannot be cancelled again.
+        """
+        if self.status == OrderStatus.CANCELLED:
+            raise RuntimeError(f'Order #{self.pk} is already cancelled.')
+
+        if self.status == OrderStatus.FULFILLED:
+            sale_rows = StockMovement.objects.filter(
+                ref_id=self.pk, type=MovementType.SALE,
+            )
+            for row in sale_rows:
+                StockMovement.objects.create(
+                    product_id=row.product_id,
+                    location_id=row.location_id,
+                    lot_id=row.lot_id,
+                    type=MovementType.RETURN,
+                    qty_kg=-row.qty_kg,        # sale was negative → return is positive
+                    qty_pieces=-row.qty_pieces,
+                    ref_id=self.pk,
+                    user=user,
+                )
+
+        self.status = OrderStatus.CANCELLED
+        self.save(update_fields=['status', 'updated_at'])
+
     def __str__(self):
         return f'Order #{self.pk} [{self.source} / {self.status}] {self.total_paisa}p'
 
@@ -164,11 +198,37 @@ class OrderLine(BaseModel):
         return f'Line #{self.pk}: {self.product} ×{self.qty_kg}kg/{self.qty_pieces}pc = {self.line_total_paisa}p'
 
 
+# Methods whose money is settled by a gateway. These may only be recorded against a
+# PaymentIntent the gateway itself verified — a typed-in reference proves nothing.
+GATEWAY_METHODS = frozenset({PaymentMethod.FONEPAY, PaymentMethod.ESEWA, PaymentMethod.KHALTI})
+
+
 class Payment(BaseModel):
     order        = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='payments')
     method       = models.CharField(max_length=20, choices=PaymentMethod.choices)
     amount_paisa = models.PositiveBigIntegerField()
-    ref          = models.TextField(null=True, blank=True)   # external transaction ref (eSewa ID, card slip, etc.)
+    ref          = models.TextField(null=True, blank=True)   # card slip no., cash memo — human reference only
+
+    # Proof. Present for every gateway-settled payment, absent for cash and card.
+    # OneToOne: one verified payment can be spent on exactly one order.
+    intent       = models.OneToOneField(
+                       'payments.PaymentIntent', null=True, blank=True,
+                       on_delete=models.PROTECT, related_name='payment',
+                   )
+
+    class Meta:
+        constraints = [
+            # A digital payment without gateway proof must not be representable in the
+            # database at all — not merely rejected by the serializer that happens to
+            # be in front of it today.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(method__in=list(GATEWAY_METHODS), intent__isnull=False)
+                    | ~models.Q(method__in=list(GATEWAY_METHODS))
+                ),
+                name='gateway_payment_requires_verified_intent',
+            ),
+        ]
 
     def __str__(self):
         return f'Payment #{self.pk}: {self.method} {self.amount_paisa}p → Order #{self.order_id}'

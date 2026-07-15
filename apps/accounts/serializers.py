@@ -2,7 +2,36 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from .models import Role
+
 User = get_user_model()
+
+
+class SuperuserRoleGuardMixin:
+    """
+    Only a superuser may mint or touch a superuser account. Without this, a manager
+    — who has full write on /users/ — could create a superuser, or PATCH their own
+    role to superuser, and escalate past every role check in the system.
+    """
+    def _requester_role(self):
+        request = self.context.get('request')
+        return getattr(getattr(request, 'user', None), 'role', None)
+
+    def validate_role(self, role):
+        if role == Role.SUPERUSER and self._requester_role() != Role.SUPERUSER:
+            raise serializers.ValidationError('Only a superuser may grant the superuser role.')
+        return role
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        # Editing an existing superuser is itself a superuser-only act.
+        if (
+            self.instance is not None
+            and getattr(self.instance, 'role', None) == Role.SUPERUSER
+            and self._requester_role() != Role.SUPERUSER
+        ):
+            raise serializers.ValidationError('Only a superuser may modify a superuser account.')
+        return attrs
 
 
 class EverfreshTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -18,7 +47,7 @@ class EverfreshTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(SuperuserRoleGuardMixin, serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
@@ -29,7 +58,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date_joined']
 
 
-class UserCreateSerializer(serializers.ModelSerializer):
+class UserCreateSerializer(SuperuserRoleGuardMixin, serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:

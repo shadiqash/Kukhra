@@ -16,6 +16,7 @@ _api = [
     path('', include('apps.processing.urls')),
     path('', include('apps.inventory.urls')),
     path('', include('apps.procurement.urls')),
+    path('', include('apps.payments.urls')),
     path('', include('apps.sales.urls')),
     path('', include('apps.billing.urls')),
 ]

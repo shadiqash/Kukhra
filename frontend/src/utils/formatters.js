@@ -10,6 +10,20 @@ export const formatWeight = (kg) => {
   return `${kg.toFixed(3)} kg`;
 };
 
+// ── VAT (inclusive) ─────────────────────────────────────────────────────────
+// Shelf prices already contain the 13% VAT, so it is EXTRACTED, never added:
+//   base = floor(inclusive × 100 / 113);  vat = inclusive − base.
+// Mirrors the backend compute_line_vat so the receipt and the invoice agree.
+export const vatFromInclusive = (inclusivePaisa) =>
+  inclusivePaisa - Math.floor((inclusivePaisa * 100) / 113);
+
+// Total VAT contained within a set of cart/order lines (per-line, to match the
+// backend which extracts per line then sums). Exempt lines contribute nothing.
+export const vatForLines = (lines) =>
+  lines
+    .filter((l) => l.tax_class === 'taxable')
+    .reduce((s, l) => s + vatFromInclusive(l.line_total_paisa), 0);
+
 // ── BS date formatters ──────────────────────────────────────────────────────
 const MONTHS_EN = [
   'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',

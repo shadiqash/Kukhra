@@ -1,5 +1,5 @@
 import { formatBSDate } from '../utils/formatBSDate'
-import { formatMoney } from '../utils/formatters'
+import { formatMoney, vatForLines } from '../utils/formatters'
 
 const STORE_NAME = 'Everfresh Poultry'
 const STORE_ADDRESS = 'Kathmandu, Nepal'
@@ -29,10 +29,12 @@ export function printReceipt({ order, lines, method, tenderedPaisa, outletName, 
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
   const receiptNo = String(order?.id ?? '???').padStart(6, '0')
 
+  // Prices are VAT-inclusive: the total is the sum of line totals; VAT is the
+  // portion already contained within it, broken out for the tax record only.
   const exemptPaisa  = lines.filter(l => l.tax_class !== 'taxable').reduce((s, l) => s + l.line_total_paisa, 0)
   const taxablePaisa = lines.filter(l => l.tax_class === 'taxable').reduce((s, l) => s + l.line_total_paisa, 0)
-  const vatPaisa     = Math.floor((taxablePaisa * 13) / 100)
-  const grandTotal   = exemptPaisa + taxablePaisa + vatPaisa
+  const vatPaisa     = vatForLines(lines)
+  const grandTotal   = exemptPaisa + taxablePaisa
   const changePaisa  = method === 'cash' ? Math.max(0, (tenderedPaisa || grandTotal) - grandTotal) : 0
 
   const lineRows = lines.map((l) => {
@@ -87,9 +89,10 @@ export function printReceipt({ order, lines, method, tenderedPaisa, outletName, 
   <div class="small vat-note">* = VAT taxable item</div>
   <div class="divider"></div>
   ${exemptPaisa > 0  ? `<div class="row small"><span>Exempt</span><span>${formatMoney(exemptPaisa)}</span></div>` : ''}
-  ${taxablePaisa > 0 ? `<div class="row small"><span>Taxable</span><span>${formatMoney(taxablePaisa)}</span></div>` : ''}
-  ${vatPaisa > 0     ? `<div class="row small"><span>VAT 13%</span><span>${formatMoney(vatPaisa)}</span></div>` : ''}
+  ${taxablePaisa > 0 ? `<div class="row small"><span>Taxable (incl. VAT)</span><span>${formatMoney(taxablePaisa)}</span></div>` : ''}
+  ${vatPaisa > 0     ? `<div class="row small"><span>of which VAT 13%</span><span>${formatMoney(vatPaisa)}</span></div>` : ''}
   <div class="row bold large" style="margin-top:2mm;"><span>TOTAL</span><span>${formatMoney(grandTotal)}</span></div>
+  ${vatPaisa > 0 ? `<div class="small vat-note">Prices are inclusive of 13% VAT.</div>` : ''}
   <div class="divider"></div>
   <div class="row"><span>Payment</span><span>${methodLabel}${ref ? ` (${ref})` : ''}</span></div>
   ${method === 'cash' && tenderedPaisa ? `<div class="row"><span>Tendered</span><span>${formatMoney(tenderedPaisa)}</span></div>` : ''}

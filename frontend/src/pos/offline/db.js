@@ -31,6 +31,17 @@ export async function deletePendingOrder(localId) {
   return db.delete('pending_orders', localId)
 }
 
+// Persists replay progress (e.g. a created-but-not-yet-fulfilled order id) so
+// a later sync attempt resumes from where a partial failure left off, rather
+// than re-running the atomic checkout and creating a duplicate order.
+export async function updatePendingOrder(localId, patch) {
+  const db = await getDB()
+  const tx = db.transaction('pending_orders', 'readwrite')
+  const existing = await tx.store.get(localId)
+  if (existing) await tx.store.put({ ...existing, ...patch })
+  await tx.done
+}
+
 export async function cacheProducts(products) {
   const db = await getDB()
   const tx = db.transaction('products_cache', 'readwrite')

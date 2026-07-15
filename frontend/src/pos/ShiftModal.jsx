@@ -53,7 +53,10 @@ export default function ShiftModal({ session, counterId, onOpen, onClose, onDism
   }
 
   if (zReport) {
+    // Blind count: the server withholds the drawer audit from cashiers, so these
+    // fields are simply absent for them. Only a manager closing a till sees them.
     const variance = zReport.variance_paisa
+    const showsAudit = variance !== undefined && variance !== null
     const varianceColor = variance === 0
       ? 'text-brand-primary'
       : variance > 0 ? 'text-blue-700' : 'text-brand-danger'
@@ -86,16 +89,27 @@ export default function ShiftModal({ session, counterId, onOpen, onClose, onDism
                 />
               ))
             )}
-            <div className="border-t border-brand-border/60 my-2" />
-            <Row label="Counted Cash" value={formatMoney(zReport.closing_counted_paisa)} />
-            <Row label="Expected Cash" value={formatMoney(zReport.opening_float_paisa + zReport.cash_sales_paisa)} />
-            <div className={`flex justify-between font-semibold pt-1 ${varianceColor}`}>
-              <span>Variance</span>
-              <span>
-                {variance >= 0 ? '+' : ''}{formatMoney(Math.abs(variance))}
-                {variance > 0 ? ' over' : variance < 0 ? ' short' : ' balanced'}
-              </span>
-            </div>
+            {showsAudit ? (
+              <>
+                <div className="border-t border-brand-border/60 my-2" />
+                <Row label="Counted Cash" value={formatMoney(zReport.closing_counted_paisa)} />
+                <Row label="Expected Cash" value={formatMoney(zReport.expected_cash_paisa)} />
+                <div className={`flex justify-between font-semibold pt-1 ${varianceColor}`}>
+                  <span>Variance</span>
+                  <span>
+                    {variance >= 0 ? '+' : ''}{formatMoney(Math.abs(variance))}
+                    {variance > 0 ? ' over' : variance < 0 ? ' short' : ' balanced'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="border-t border-brand-border/60 my-2" />
+                <p className="text-xs text-text-secondary/70">
+                  Drawer counted and submitted. Your manager reviews the reconciliation.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="flex gap-2 mt-5">

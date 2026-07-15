@@ -105,6 +105,14 @@ IsInvoiceReader = _role_permission(
     name='IsInvoiceReader',
 )
 
+# Aggregate revenue reports (e.g. /orders/summary/).
+# Rule 7: cashier has NO finance/report access — a cashier may create orders but
+# must never read org-wide takings. Customer excluded: aggregates are not per-customer.
+IsReportReader = _role_permission(
+    Role.MANAGER, Role.SUPERUSER, Role.OUTLET_MANAGER,
+    name='IsReportReader',
+)
+
 
 class OutletManagerReadOnly(BasePermission):
     """

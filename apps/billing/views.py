@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import mixins, viewsets
 from rest_framework.response import Response
 
@@ -10,7 +11,7 @@ from apps.accounts.permissions import (
     outlet_location_ids,
 )
 
-from .models import CreditNote, Invoice, InvoiceLine
+from .models import CreditNote, Invoice, InvoiceLine, compute_line_vat
 from .serializers import CreditNoteSerializer, InvoiceLineSerializer, InvoiceSerializer
 
 
@@ -72,6 +73,22 @@ class InvoiceLineViewSet(
         if loc_ids is not None:
             qs = qs.filter(invoice__order__fulfilled_location__in=loc_ids)
         return qs
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        """
+        Snapshot the tax class from the product and compute VAT server-side, then
+        roll the parent invoice's header totals up from its lines. Without the
+        recompute, every invoice header stayed at zero no matter what lines it held.
+        """
+        product = serializer.validated_data['product']
+        line_total = serializer.validated_data['line_total_paisa']
+        tax_class = product.tax_class
+        line = serializer.save(
+            tax_class=tax_class,
+            vat_paisa=compute_line_vat(line_total, tax_class),
+        )
+        line.invoice.recompute_totals()
 
 
 class CreditNoteViewSet(

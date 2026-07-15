@@ -1,8 +1,9 @@
 """
-Proves:
+Proves (VAT-inclusive model — shelf prices already contain the 13%):
 - exempt lines produce vat_paisa = 0
-- taxable lines produce vat_paisa = int(line_total_paisa * 0.13)
-- Invoice.recompute_totals() correctly buckets lines into exempt/taxable/vat header sums
+- taxable lines produce vat_paisa = line_total − floor(line_total × 100 / 113)
+- Invoice.recompute_totals() buckets lines into exempt / ex-VAT-taxable / vat, and
+  total reconciles to the sum of inclusive line totals (no double-count)
 - Invoice.delete() and CreditNote.delete() raise (immutability guard)
 """
 from decimal import Decimal
@@ -63,13 +64,14 @@ def test_exempt_line_vat_is_zero():
     assert compute_line_vat(100000, TaxClass.EXEMPT) == 0
 
 
-def test_taxable_line_vat_is_13_percent():
-    assert compute_line_vat(100000, TaxClass.TAXABLE) == 13000
+def test_taxable_line_vat_extracted_from_inclusive():
+    # 100000 inclusive → base floor(100000×100/113)=88495, vat=11505
+    assert compute_line_vat(100000, TaxClass.TAXABLE) == 11505
 
 
-def test_taxable_vat_truncates_sub_paisa():
-    # 10001 * 0.13 = 1300.13 → truncates to 1300
-    assert compute_line_vat(10001, TaxClass.TAXABLE) == 1300
+def test_taxable_vat_floors_sub_paisa():
+    # 10001 inclusive → base floor(1000100/113)=8850, vat=1151
+    assert compute_line_vat(10001, TaxClass.TAXABLE) == 1151
 
 
 def test_zero_line_total_gives_zero_vat():
@@ -101,7 +103,7 @@ def test_taxable_invoice_line_stores_13_percent_vat(invoice, taxable_product, ta
         qty_kg=Decimal('1.000'), unit_paisa=80000,
         line_total_paisa=line_total, vat_paisa=vat,
     )
-    assert line.vat_paisa == 10400  # 80000 * 0.13
+    assert line.vat_paisa == 9204  # 80000 − floor(80000×100/113)=80000−70796
 
 
 # ── Invoice.recompute_totals() ────────────────────────────────────────────────
@@ -132,9 +134,11 @@ def test_recompute_totals_buckets_exempt_and_taxable(
     invoice.refresh_from_db()
 
     assert invoice.exempt_paisa  == exempt_total
-    assert invoice.taxable_paisa == taxable_total
-    assert invoice.vat_paisa     == taxable_vat          # 10400
-    assert invoice.total_paisa   == exempt_total + taxable_total + taxable_vat
+    # taxable_paisa is the ex-VAT base; base + vat = the inclusive taxable total
+    assert invoice.taxable_paisa == taxable_total - taxable_vat   # 70796
+    assert invoice.vat_paisa     == taxable_vat                   # 9204
+    # total reconciles to the inclusive amount the customer paid, VAT not added twice
+    assert invoice.total_paisa   == exempt_total + taxable_total
 
 
 @pytest.mark.django_db

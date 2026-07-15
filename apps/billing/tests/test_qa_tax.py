@@ -1,7 +1,9 @@
 """
-QA — Angle 4: Tax correctness.
-VAT is exactly 13% of taxable_paisa using integer truncation.
-exempt_paisa + taxable_paisa + vat_paisa == total_paisa always.
+QA — Angle 4: Tax correctness (VAT-inclusive model).
+Shelf prices already contain the 13% VAT, so VAT is extracted, not added:
+    base = floor(line_total × 100 / 113);  vat = line_total − base.
+taxable_paisa is the ex-VAT base; exempt_paisa + taxable_paisa + vat_paisa
+== total_paisa always, and total equals the inclusive amount the customer paid.
 """
 from decimal import Decimal
 
@@ -120,11 +122,12 @@ def test_all_taxable_invoice_vat_is_13_percent(outlet, session, product_taxable,
     inv.recompute_totals()
     inv.refresh_from_db()
 
-    expected_vat = int(Decimal(line_total) * Decimal('13') / Decimal('100'))
-    assert inv.vat_paisa == expected_vat
-    assert inv.taxable_paisa == line_total
+    # VAT extracted from the inclusive total: 100000 − floor(100000×100/113) = 11505
+    expected_vat = line_total - (line_total * 100 // 113)
+    assert inv.vat_paisa == expected_vat            # 11505
+    assert inv.taxable_paisa == line_total - expected_vat   # 88495 (ex-VAT base)
     assert inv.exempt_paisa == 0
-    assert inv.total_paisa == line_total + expected_vat
+    assert inv.total_paisa == line_total            # inclusive; VAT not added on top
 
 
 # ── Mixed invoice ─────────────────────────────────────────────────────────────
@@ -140,18 +143,22 @@ def test_mixed_invoice_totals_are_correct(
     inv.recompute_totals()
     inv.refresh_from_db()
 
+    expected_vat = 100000 - (100000 * 100 // 113)   # 11505
     assert inv.exempt_paisa == 75000
-    assert inv.taxable_paisa == 100000
-    assert inv.vat_paisa == int(Decimal('100000') * Decimal('13') / Decimal('100'))
+    assert inv.taxable_paisa == 100000 - expected_vat   # 88495 ex-VAT base
+    assert inv.vat_paisa == expected_vat
+    # invariant holds, and total reconciles to the inclusive amount 75000 + 100000
     assert inv.total_paisa == inv.exempt_paisa + inv.taxable_paisa + inv.vat_paisa
+    assert inv.total_paisa == 175000
 
 
 # ── Integer truncation — no rounding leaks ───────────────────────────────────
 
 @pytest.mark.django_db
-def test_vat_truncates_fractional_paisa(outlet, session, product_taxable, price_taxable):
+def test_vat_extracted_with_integer_floor(outlet, session, product_taxable, price_taxable):
     """
-    100001 paisa × 13% = 13000.13 → truncate to 13000 (not round to 13001).
+    100001 inclusive → base floor(10000100/113)=88496, vat=100001−88496=11505.
+    Integer floor division, no fractional-paisa leak.
     """
     order = make_order(outlet, session)
     inv = make_invoice(order, 'TAX-TRUNC-001')
@@ -160,9 +167,10 @@ def test_vat_truncates_fractional_paisa(outlet, session, product_taxable, price_
     inv.recompute_totals()
     inv.refresh_from_db()
 
-    exact_vat = int(Decimal(line_total) * Decimal('13') / Decimal('100'))
-    assert inv.vat_paisa == exact_vat
-    assert inv.vat_paisa == 13000  # truncates, not rounds
+    expected_vat = line_total - (line_total * 100 // 113)
+    assert inv.vat_paisa == expected_vat
+    assert inv.vat_paisa == 11505
+    assert inv.total_paisa == line_total  # inclusive
 
 
 @pytest.mark.django_db
@@ -172,9 +180,10 @@ def test_compute_line_vat_exempt_always_zero():
 
 @pytest.mark.django_db
 def test_compute_line_vat_taxable_uses_integer_math():
-    # 77777 × 0.13 = 10111.01 → truncates to 10111
+    # 77777 inclusive → base floor(7777700/113)=68829, vat=77777−68829=8948
     result = compute_line_vat(77777, TaxClass.TAXABLE)
-    assert result == int(Decimal('77777') * Decimal('13') / Decimal('100'))
+    assert result == 77777 - (77777 * 100 // 113)
+    assert result == 8948
     assert isinstance(result, int)
 
 

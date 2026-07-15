@@ -2,8 +2,25 @@ import { useState, useMemo } from 'react';
 import { useApi } from '../hooks/useApi';
 import ErrorBanner from '../ui/ErrorBanner';
 import { useToast } from '../ui/Toast';
-import { getLots, getSuppliers, getLocations, createLot } from '../api';
+import { getLots, getSuppliers, getLocations, createLot, transitionLot } from '../api';
 import { formatDateString } from '../utils/formatters';
+
+// Mirrors the server's VALID_TRANSITIONS whitelist (apps/lots/models.py).
+// The server is the authority; this only decides which buttons to offer.
+const NEXT_STATUSES = {
+  arrival:    ['grading'],
+  grading:    ['storage', 'slaughter'],
+  storage:    ['slaughter'],
+  slaughter:  ['packaging'],
+  packaging:  ['sale'],
+  sale:       ['settlement'],
+  settlement: [],
+};
+
+const STATUS_LABEL = {
+  arrival: 'Arrival', grading: 'Grading', storage: 'Storage', slaughter: 'Slaughter',
+  packaging: 'Packaging', sale: 'Sale', settlement: 'Settlement',
+};
 
 export default function Lots() {
   const toast = useToast();
@@ -11,6 +28,7 @@ export default function Lots() {
   const [form, setForm] = useState({ code: '', source_type: 'external', supplier: '', arrival_location: '', live_weight_kg: '', bird_count: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [movingId, setMovingId] = useState(null);
 
   const { data: lots, loading, error: loadError, refetch } = useApi(getLots);
   const { data: suppliers } = useApi(getSuppliers);
@@ -42,6 +60,17 @@ export default function Lots() {
     } finally { setSaving(false); }
   }
 
+  async function handleTransition(lot, next) {
+    setMovingId(lot.id);
+    try {
+      await transitionLot(lot.id, next);
+      toast.success(`${lot.code} moved to ${STATUS_LABEL[next]}`);
+      refetch();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail ?? 'Could not advance this lot');
+    } finally { setMovingId(null); }
+  }
+
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col">
       <ErrorBanner error={loadError} onRetry={refetch} />
@@ -56,7 +85,7 @@ export default function Lots() {
           <table className="w-full text-left whitespace-nowrap">
             <thead className="bg-brand-surface border-b-[1.5px] border-brand-border sticky top-0 z-10">
               <tr>
-                {['Lot Code', 'Supplier', 'Live Weight (kg)', 'Bird Count', 'Received', 'Status'].map(h => (
+                {['Lot Code', 'Supplier', 'Live Weight (kg)', 'Bird Count', 'Received', 'Status', 'Advance To'].map(h => (
                   <th key={h} className="px-4 py-2.5 text-[11px] font-sans font-medium text-text-secondary uppercase tracking-widest">{h}</th>
                 ))}
               </tr>
@@ -64,7 +93,7 @@ export default function Lots() {
             <tbody>
               {loading ? Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i} className="border-b border-[#f0f0f0]">
-                  {Array.from({ length: 6 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-4 bg-gray-100 rounded animate-pulse" /></td>)}
+                  {Array.from({ length: 7 }).map((__, j) => <td key={j} className="px-4 py-3.5"><div className="h-4 bg-gray-100 rounded animate-pulse" /></td>)}
                 </tr>
               )) : lots.map(lot => (
                 <tr key={lot.id} className="border-b border-[#f0f0f0] hover:bg-[#fafafa] text-[14px]">
@@ -82,10 +111,28 @@ export default function Lots() {
                     {lot.status === 'sale' && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] bg-[#f3f4f6] text-text-secondary font-medium">Sale</span>}
                     {lot.status === 'settlement' && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] bg-[#f3f4f6] text-text-secondary font-medium">Settlement</span>}
                   </td>
+                  <td className="px-4 py-3.5">
+                    {(NEXT_STATUSES[lot.status] ?? []).length === 0 ? (
+                      <span className="text-text-secondary text-[13px]">Complete</span>
+                    ) : (
+                      <div className="flex gap-2">
+                        {NEXT_STATUSES[lot.status].map(next => (
+                          <button
+                            key={next}
+                            onClick={() => handleTransition(lot, next)}
+                            disabled={movingId === lot.id}
+                            className="h-8 px-3 border-[1.5px] border-brand-border rounded-md text-[13px] font-medium text-brand-primary hover:bg-brand-surface disabled:opacity-50 transition-colors"
+                          >
+                            {movingId === lot.id ? '…' : `→ ${STATUS_LABEL[next]}`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
               {!loading && lots.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-text-secondary text-[14px]">No lots received yet.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-text-secondary text-[14px]">No lots received yet.</td></tr>
               )}
             </tbody>
           </table>

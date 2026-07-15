@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import logoIcon from '../assets/logo-icon.png';
 
 export default function LoginPage() {
   usePageTitle('Sign in');
@@ -32,14 +33,7 @@ export default function LoginPage() {
         {/* Subtle texture or pattern placeholder */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent mix-blend-overlay"></div>
         <div className="z-10 flex flex-col items-center">
-          {/* Stylized chicken silhouette placeholder (using text/svg for now) */}
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4">
-             <path d="M12 2C7.5 2 4 5 4 10c0 3 2 5.5 4 8h8c2-2.5 4-5 4-8 0-5-3.5-8-8-8z"/>
-             <path d="M14 18v4"/>
-             <path d="M10 18v4"/>
-             <circle cx="15" cy="8" r="1" fill="white"/>
-             <path d="M4 10c-1.5 0-2 1-2 2"/>
-          </svg>
+          <img src={logoIcon} alt="Everfresh" width="112" height="112" className="mb-4" />
           <h1 className="text-white font-bold text-[28px] tracking-wide mb-2">Everfresh Poultry</h1>
           <p className="text-white/60 text-lg">Fresh Every Day</p>
         </div>

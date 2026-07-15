@@ -2,19 +2,22 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTodayBS } from '../utils/formatters';
+import logoIcon from '../assets/logo-icon.png';
 import { 
-  LayoutGrid, Package, Layers, ArrowRightLeft, 
-  Receipt, BarChart3, Box, Scissors, 
-  Truck, Users, UserCog, Clock, Settings, LogOut 
+  LayoutGrid, Package, Layers, Boxes, ArrowRightLeft,
+  Receipt, BarChart3, Box, Scissors,
+  Truck, Users, UserCog, Clock, Settings, Wallet, LogOut
 } from 'lucide-react';
 
 const NAV = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutGrid },
   { to: '/admin/products', label: 'Products', icon: Package },
-  { to: '/admin/inventory', label: 'Inventory', icon: Layers },
+  { to: '/admin/stock', label: 'Stock on Hand', icon: Boxes },
+  { to: '/admin/inventory', label: 'Stock Movements', icon: Layers },
   { to: '/admin/transfers', label: 'Transfers', icon: ArrowRightLeft },
   { to: '/admin/invoices', label: 'Invoices', icon: Receipt },
   { to: '/admin/reports', label: 'Sales Reports', icon: BarChart3 },
+  { to: '/admin/cash', label: 'Cash & Shifts', icon: Wallet },
   { to: '/admin/lots', label: 'Lots', icon: Box },
   { to: '/admin/processing', label: 'Processing', icon: Scissors },
   { to: '/admin/procurement', label: 'Procurement', icon: Truck },
@@ -38,9 +41,7 @@ export default function AdminLayout() {
       <aside className="w-[240px] bg-brand-primary flex flex-col h-full flex-none">
         {/* Logo area */}
         <div className="px-5 py-6 border-b border-white/10 flex items-center gap-2">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2C7.5 2 4 5 4 10c0 3 2 5.5 4 8h8c2-2.5 4-5 4-8 0-5-3.5-8-8-8z"/><path d="M14 18v4"/><path d="M10 18v4"/><circle cx="15" cy="8" r="1" fill="white"/><path d="M4 10c-1.5 0-2 1-2 2"/>
-          </svg>
+          <img src={logoIcon} alt="" width="28" height="28" className="shrink-0" />
           <span className="text-white font-bold tracking-wide text-[16px]">Everfresh</span>
         </div>
 
