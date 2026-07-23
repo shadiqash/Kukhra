@@ -17,9 +17,14 @@
 set -euo pipefail
 
 # ───────────────────────── CONFIG — edit before running ─────────────────────
-REPO_URL="https://github.com/<your-org>/Kukhra.git"
+REPO_URL="https://github.com/shadiqash/Kukhra.git"
 DOMAIN="everfresh.shadiq.tech"
-LETSENCRYPT_EMAIL="you@example.com"          # certbot renewal notices
+DROPLET_IP="168.144.140.228"
+# DNS for $DOMAIN isn't pointed at $DROPLET_IP yet, so this run skips certbot
+# and serves plain HTTP on the IP. Once the A record is live, set this to
+# true and re-run (or just run the certbot command printed at the end).
+ENABLE_HTTPS=false
+LETSENCRYPT_EMAIL="shadiqpoke@gmail.com"      # certbot renewal notices
 APP_USER="everfresh"                          # unprivileged system user for the app
 APP_DIR="/opt/everfresh"
 DB_NAME="everfresh"
@@ -115,15 +120,15 @@ MEDIA_ROOT=${APP_DIR}/media
 JWT_ACCESS_TOKEN_LIFETIME_MINUTES=60
 JWT_REFRESH_TOKEN_LIFETIME_DAYS=7
 
-CORS_ALLOWED_ORIGINS=https://${DOMAIN}
+CORS_ALLOWED_ORIGINS=https://${DOMAIN},http://${DROPLET_IP}
 
-ALLOWED_HOSTS=${DOMAIN}
+ALLOWED_HOSTS=${DOMAIN},${DROPLET_IP}
 SENTRY_DSN=
-CSRF_TRUSTED_ORIGINS=https://${DOMAIN}
+CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DROPLET_IP}
 LOGIN_THROTTLE_RATE=10/min
 LOG_LEVEL=INFO
 DB_CONN_MAX_AGE=60
-SECURE_SSL_REDIRECT=true
+SECURE_SSL_REDIRECT=${ENABLE_HTTPS}
 EOF
 chown "${APP_USER}:${APP_USER}" "${APP_DIR}/.env"
 chmod 600 "${APP_DIR}/.env"
@@ -175,7 +180,7 @@ echo "==> Configuring nginx"
 cat > /etc/nginx/sites-available/everfresh <<-EOF
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${DOMAIN} ${DROPLET_IP};
 
     root ${APP_DIR}/frontend/dist;
     index index.html;
@@ -215,10 +220,18 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
 
-echo "==> Requesting HTTPS certificate"
-certbot --nginx -d "${DOMAIN}" -m "${LETSENCRYPT_EMAIL}" --agree-tos --redirect --non-interactive
+if [[ "${ENABLE_HTTPS}" == "true" ]]; then
+  echo "==> Requesting HTTPS certificate"
+  certbot --nginx -d "${DOMAIN}" -m "${LETSENCRYPT_EMAIL}" --agree-tos --redirect --non-interactive
+else
+  echo "==> Skipping certbot (ENABLE_HTTPS=false — DNS for ${DOMAIN} not pointed at ${DROPLET_IP} yet)"
+  echo "    Once the A record is live, run on the droplet:"
+  echo "      certbot --nginx -d ${DOMAIN} -m ${LETSENCRYPT_EMAIL} --agree-tos --redirect --non-interactive"
+  echo "    then set SECURE_SSL_REDIRECT=true in ${APP_DIR}/.env and restart everfresh-gunicorn."
+fi
 
 echo "==> Done"
+echo "App is reachable at: http://${DROPLET_IP}/"
 echo "DB password:      ${DB_PASSWORD}"
 echo "Django secret key: ${DJANGO_SECRET_KEY}"
 echo "(both are saved in ${APP_DIR}/.env — back that file up somewhere safe)"
