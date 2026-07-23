@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from apps.accounts.models import Role
 from apps.catalog.models import Price, Product
 from apps.locations.models import Location
 from apps.partners.models import Customer
@@ -33,6 +34,18 @@ class CashierSessionSerializer(serializers.ModelSerializer):
         if CashierSession.objects.filter(counter=counter, closed_at__isnull=True).exists():
             raise serializers.ValidationError(
                 f'Counter "{counter}" already has an open session. Close it before opening a new one.'
+            )
+        # A cashier may only run a till at an outlet they are assigned to —
+        # otherwise their sales and stock movements land on another outlet's books.
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if (
+            user is not None
+            and user.role == Role.CASHIER
+            and not user.assigned_locations.filter(pk=counter.location_id).exists()
+        ):
+            raise serializers.ValidationError(
+                f'Counter "{counter}" is not at an outlet you are assigned to.'
             )
         return counter
 

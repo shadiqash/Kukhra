@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { openSession, closeSession, getSessionSummary } from '../api'
+import { apiErrorMessage } from '../utils/errors'
 import { formatDateTimeString, formatMoney } from '../utils/formatters'
 
 const METHOD_LABELS = { cash: 'Cash', card: 'Card', esewa: 'eSewa', khalti: 'Khalti' }
@@ -23,8 +24,8 @@ export default function ShiftModal({ session, counterId, onOpen, onClose, onDism
       // Null guard: opened_at should be set by the server; fall back to now
       if (!data.opened_at) data.opened_at = new Date().toISOString()
       onOpen(data)
-    } catch {
-      setError('Failed to open shift')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to open shift'))
     } finally {
       setLoading(false)
     }
@@ -40,8 +41,8 @@ export default function ShiftModal({ session, counterId, onOpen, onClose, onDism
       })
       const { data: summary } = await getSessionSummary(session.id)
       setZReport(summary)
-    } catch {
-      setError('Failed to close shift')
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to close shift'))
     } finally {
       setLoading(false)
     }

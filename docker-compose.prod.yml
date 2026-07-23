@@ -1,3 +1,4 @@
+
 # Full production stack: postgres, redis, Django (gunicorn), Celery worker,
 # Celery beat, and nginx serving the built React app + proxying /api.
 #

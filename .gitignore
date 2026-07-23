@@ -39,3 +39,4 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+mobile_server_ssh

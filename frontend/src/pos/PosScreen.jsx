@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getProducts, getPrices, getCounters } from '../api'
+import { getProducts, getPrices, getCounters, getSessions } from '../api'
 import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder, updatePendingOrder } from './offline/db'
 import { checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
 import { useAuth } from '../auth/AuthContext'
@@ -59,14 +59,33 @@ export default function PosScreen() {
     load()
   }, [])
 
-  // Load counter for this cashier
+  // Load the counter for this cashier and resume any shift still open on the
+  // server (reload/crash mid-shift — without this the till locks up with
+  // "counter already has an open session"). The server scopes the counter list
+  // to the cashier's assigned outlets, so an empty list means the account
+  // isn't assigned anywhere.
+  const [counterLoaded, setCounterLoaded] = useState(false)
   useEffect(() => {
-    getCounters()
-      .then(({ data }) => {
-        const list = data.results ?? data
-        if (list.length > 0) setCounter(list[0])
-      })
-      .catch(() => {})
+    async function bind() {
+      try {
+        const [counterRes, sessionRes] = await Promise.all([getCounters(), getSessions()])
+        const counters = counterRes.data.results ?? counterRes.data
+        const sessions = sessionRes.data.results ?? sessionRes.data
+        const open = sessions.find((s) => !s.closed_at)
+        if (open) {
+          setSession(open)
+          // Bind the till to the counter the open shift is running on, so a
+          // resumed shift keeps selling against the same outlet.
+          setCounter(counters.find((c) => c.id === open.counter) ?? counters[0] ?? null)
+        } else if (counters.length > 0) {
+          setCounter(counters[0])
+        }
+        setCounterLoaded(true)
+      } catch {
+        // Offline or server unreachable — the cached-products path still works.
+      }
+    }
+    bind()
   }, [])
 
   // Sync pending offline orders when back online
