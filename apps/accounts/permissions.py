@@ -69,6 +69,13 @@ IsWarehouseStaff = _role_permission(
     name='IsWarehouseStaff',
 )
 
+# Lot lifecycle (Lots, ProcessingRun): procurement included per the role matrix —
+# receiving bird purchases creates Lots, so procurement needs direct lot access.
+IsLotStaff = _role_permission(
+    Role.WAREHOUSE, Role.PROCUREMENT, Role.MANAGER, Role.SUPERUSER,
+    name='IsLotStaff',
+)
+
 # Inventory read/write (StockMovement, StockTransfer, stock query).
 # Outlet manager included for read access — writes blocked by OutletManagerReadOnly.
 IsInventoryStaff = _role_permission(
@@ -105,6 +112,13 @@ IsInvoiceReader = _role_permission(
     name='IsInvoiceReader',
 )
 
+# Credit-note reads: matrix row "billing/credit-notes" — customer has NO access
+# (a customer reads invoices, not the internal reversal ledger).
+IsCreditNoteReader = _role_permission(
+    Role.MANAGER, Role.SUPERUSER, Role.OUTLET_MANAGER,
+    name='IsCreditNoteReader',
+)
+
 # Aggregate revenue reports (e.g. /orders/summary/).
 # Rule 7: cashier has NO finance/report access — a cashier may create orders but
 # must never read org-wide takings. Customer excluded: aggregates are not per-customer.
@@ -126,6 +140,23 @@ class OutletManagerReadOnly(BasePermission):
             request.user and
             request.user.is_authenticated and
             request.user.role == Role.OUTLET_MANAGER
+        ):
+            return request.method in SAFE_METHODS
+        return True
+
+
+class CustomerReadOnly(BasePermission):
+    """
+    For viewsets where customer-role users have read-only access (matrix: R(own)).
+    Customers may read (scoping handled by get_queryset/IsCustomerSelf); writes denied.
+    Other roles always pass through.
+    Phase 2 (app ordering) will replace this with a dedicated customer order flow.
+    """
+    def has_permission(self, request, view):
+        if (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == Role.CUSTOMER
         ):
             return request.method in SAFE_METHODS
         return True

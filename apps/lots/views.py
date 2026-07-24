@@ -2,16 +2,19 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.accounts.permissions import IsWarehouseStaff
+from apps.accounts.permissions import IsLotStaff
 
 from .models import Lot
 from .serializers import LotSerializer, LotTransitionSerializer
 
 
 class LotViewSet(viewsets.ModelViewSet):
+    # No PUT/DELETE: a lot is a traceability record (Rule 5) — status moves via
+    # the `transition` action, details via PATCH; nothing is ever removed.
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
     queryset = Lot.objects.select_related('supplier', 'arrival_location').order_by('-created_at')
     serializer_class = LotSerializer
-    permission_classes = [IsWarehouseStaff]
+    permission_classes = [IsLotStaff]
 
     def get_queryset(self):
         qs = super().get_queryset()

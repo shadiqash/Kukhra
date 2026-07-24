@@ -2,7 +2,8 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.accounts.permissions import IsSalesStaff, outlet_location_ids
+from apps.accounts.models import Role
+from apps.accounts.permissions import IsSalesStaff, OutletManagerReadOnly, outlet_location_ids
 
 from .gateways.base import GatewayError
 from .models import PaymentIntent
@@ -24,13 +25,14 @@ class PaymentIntentViewSet(
     word, not anyone else's. PUT/PATCH/DELETE are structurally absent.
     """
     serializer_class = PaymentIntentSerializer
-    permission_classes = [IsSalesStaff]
+    # Matrix: outlet manager is R(own) on sales — may watch intents, never create them.
+    permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 
     def get_queryset(self):
         qs = PaymentIntent.objects.select_related('location').order_by('-created_at')
         user = self.request.user
         # A cashier only ever sees the money they themselves put on screen.
-        if user.role == 'cashier':
+        if user.role == Role.CASHIER:
             return qs.filter(created_by=user)
         loc_ids = outlet_location_ids(user)
         if loc_ids is not None:
@@ -66,7 +68,9 @@ class PaymentIntentViewSet(
 
         return Response(PaymentIntentSerializer(intent).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['get', 'post'], url_path='verify')
+    # POST-only: verification mutates intent state, so it must not ride on a
+    # SAFE_METHOD that read-only roles are allowed through.
+    @action(detail=True, methods=['post'], url_path='verify')
     def verify(self, request, pk=None):
         """
         Poll the gateway. Safe to call repeatedly — a verified or failed intent is

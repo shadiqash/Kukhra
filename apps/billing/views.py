@@ -1,9 +1,9 @@
 from django.db import transaction
 from rest_framework import mixins, viewsets
-from rest_framework.response import Response
 
 from apps.accounts.models import Role
 from apps.accounts.permissions import (
+    IsCreditNoteReader,
     IsCustomerSelf,
     IsFinanceStaff,
     IsInvoiceReader,
@@ -20,8 +20,12 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     Rule 7: cashier has NO access to finance/billing endpoints.
     Outlet managers can read invoices for their locations (read-only via OutletManagerReadOnly).
     Customers can read their own invoices.
-    Writes (create, update) require manager/superuser (IsFinanceStaff).
+    Creation requires manager/superuser (IsFinanceStaff).
+
+    Issued invoices are immutable: no PUT/PATCH/DELETE. Corrections are reversing
+    CreditNotes, never edits to history.
     """
+    http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = InvoiceSerializer
 
     def get_permissions(self):
@@ -33,17 +37,16 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Invoice.objects.select_related('order', 'customer').prefetch_related('lines').order_by('-issued_at')
         if user.role == Role.CUSTOMER:
-            qs = qs.filter(customer_id=getattr(user, 'customer_id', None))
+            customer_id = getattr(user, 'customer_id', None)
+            # Fall closed: without a linked customer, `customer_id=None` would match
+            # every walk-in invoice (they all have customer NULL) instead of none.
+            if not customer_id:
+                return qs.none()
+            qs = qs.filter(customer_id=customer_id)
         loc_ids = outlet_location_ids(user)
         if loc_ids is not None:
             qs = qs.filter(order__fulfilled_location__in=loc_ids)
         return qs
-
-    def destroy(self, request, *args, **kwargs):
-        return Response(
-            {'detail': 'Invoices are immutable. Issue a CreditNote to reverse.'},
-            status=405,
-        )
 
 
 class InvoiceLineViewSet(
@@ -65,11 +68,19 @@ class InvoiceLineViewSet(
         return [IsFinanceStaff()]
 
     def get_queryset(self):
+        user = self.request.user
         qs = InvoiceLine.objects.select_related('invoice', 'product', 'price').order_by('id')
+        if user.role == Role.CUSTOMER:
+            customer_id = getattr(user, 'customer_id', None)
+            # Fall closed: an unlinked customer must see nothing, not every
+            # walk-in invoice's lines (their invoices have customer NULL).
+            if not customer_id:
+                return qs.none()
+            qs = qs.filter(invoice__customer_id=customer_id)
         invoice_id = self.request.query_params.get('invoice')
         if invoice_id:
             qs = qs.filter(invoice_id=invoice_id)
-        loc_ids = outlet_location_ids(self.request.user)
+        loc_ids = outlet_location_ids(user)
         if loc_ids is not None:
             qs = qs.filter(invoice__order__fulfilled_location__in=loc_ids)
         return qs
@@ -99,14 +110,15 @@ class CreditNoteViewSet(
 ):
     """
     CreditNotes are immutable once issued — no update or delete.
-    Rule 7: cashier has NO access.
+    Rule 7: cashier has NO access. Customer has NO access (matrix: credit-notes
+    are internal reversal records, not customer-facing documents).
     Outlet managers can read credit notes for their locations.
     """
     serializer_class = CreditNoteSerializer
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
-            return [IsInvoiceReader(), OutletManagerReadOnly()]
+            return [IsCreditNoteReader(), OutletManagerReadOnly()]
         return [IsFinanceStaff()]
 
     def get_queryset(self):

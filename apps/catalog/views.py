@@ -1,6 +1,11 @@
 from rest_framework import mixins, viewsets
 
-from apps.accounts.permissions import IsPriceReader, OutletManagerReadOnly, ReadOnlyOrManager
+from apps.accounts.permissions import (
+    IsManagerOrSuperuser,
+    IsPriceReader,
+    OutletManagerReadOnly,
+    ReadOnlyOrManager,
+)
 
 from .models import Price, Product
 from .serializers import PriceSerializer, ProductSerializer
@@ -23,10 +28,15 @@ class PriceViewSet(
     Price rows are append-only (model blocks update/delete).
     Outlet managers can read prices (needed for sales reports).
     Rule 7: warehouse (worker) is blocked — IsPriceReader allows cashier/outlet_mgr/manager/superuser.
+    Matrix: cashier is read-only on prices — setting a price is a manager decision.
     """
     queryset = Price.objects.all().order_by('-valid_from', 'id')
     serializer_class = PriceSerializer
-    permission_classes = [IsPriceReader, OutletManagerReadOnly]
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [IsPriceReader(), OutletManagerReadOnly()]
+        return [IsManagerOrSuperuser()]
 
     def get_queryset(self):
         qs = super().get_queryset()

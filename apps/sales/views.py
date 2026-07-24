@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from apps.accounts.models import Role
 from apps.accounts.permissions import (
+    CustomerReadOnly,
     IsCustomerSelf,
     IsFinanceStaff,
     IsReportReader,
@@ -37,7 +38,12 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
     Cashiers see only their own sessions.
     Outlet managers see sessions at their assigned locations (read-only).
     Rule 7: warehouse/procurement blocked (IsSalesStaff).
+
+    Sessions are money-bearing records: no PUT/PATCH/DELETE. Opening figures are
+    fixed at create; closing goes only through the `close` action, so the drawer
+    count can never be rewritten after the fact.
     """
+    http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = CashierSessionSerializer
     permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 
@@ -204,7 +210,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = OrderSerializer
-    permission_classes = [IsSalesOrCustomer, IsCustomerSelf, OutletManagerReadOnly]
+    # CustomerReadOnly: matrix says customer is R(own) — app ordering is Phase 2.
+    permission_classes = [IsSalesOrCustomer, IsCustomerSelf, OutletManagerReadOnly, CustomerReadOnly]
 
     def get_queryset(self):
         user = self.request.user

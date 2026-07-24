@@ -46,6 +46,12 @@ class CashierSession(BaseModel):
             ),
         ]
 
+    def delete(self, *args, **kwargs):
+        raise RuntimeError(
+            'CashierSessions are immutable shift records and must never be deleted — '
+            'deleting one would detach its orders and erase the shift from reconciliation.'
+        )
+
     def close(self, closing_counted_paisa: int) -> None:
         if self.closed_at is not None:
             raise RuntimeError(f'CashierSession #{self.pk} is already closed.')
