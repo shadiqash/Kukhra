@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getProducts, getPrices, getCounters, getSessions } from '../api'
-import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder, updatePendingOrder } from './offline/db'
+import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder, updatePendingOrder, getHeldOrders, putHeldOrder, deleteHeldOrder } from './offline/db'
 import { checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { formatMoney } from '../utils/formatters'
+import { uuid } from '../utils/uuid'
 import Cart from './Cart'
 import PaymentModal from './PaymentModal'
 import ShiftModal from './ShiftModal'
@@ -32,7 +33,28 @@ export default function PosScreen() {
   const [counter, setCounter] = useState(null)
   const [showShift, setShowShift] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  // Reactive connectivity (EF-07): reading navigator.onLine inline in JSX never
+  // re-renders on a change. Track it in state driven by the online/offline events.
+  const [online, setOnline] = useState(navigator.onLine)
   const toast = useToast()
+
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine)
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+
+  // Rehydrate parked carts from IndexedDB on mount so a refresh/crash doesn't lose
+  // them (EF-05).
+  useEffect(() => {
+    getHeldOrders().then((held) => {
+      if (held.length) setHeldOrders(held.sort((a, b) => a.heldAt - b.heldAt))
+    }).catch(() => {})
+  }, [])
 
   const showToast = (msg) => toast.success(msg)
 
@@ -91,10 +113,7 @@ export default function PosScreen() {
   // Sync pending offline orders when back online
   const syncingRef = useRef(false)
   useEffect(() => {
-    async function syncPending() {
-      if (!navigator.onLine || syncingRef.current) return
-      syncingRef.current = true
-      try {
+    async function replayPending() {
         const pending = await getPendingOrders()
         for (const p of pending) {
           const linePayloads = p.lines.map((l) => ({
@@ -146,6 +165,24 @@ export default function PosScreen() {
           } catch {
             /* leave in queue, resuming from whichever step last completed */
           }
+        }
+    }
+
+    async function syncPending() {
+      if (!navigator.onLine || syncingRef.current) return
+      syncingRef.current = true
+      try {
+        // Serialize replay across tabs (EF-08): with two POS tabs both regaining
+        // connectivity, an exclusive Web Lock lets exactly one drain the shared
+        // pending_orders queue; ifAvailable yields null in the others and they skip.
+        // (EF-01's idempotency key already makes a double-replay harmless — this
+        // just avoids the wasted duplicate request.)
+        if (navigator.locks?.request) {
+          await navigator.locks.request('everfresh-pos-sync', { ifAvailable: true }, async (lock) => {
+            if (lock) await replayPending()
+          })
+        } else {
+          await replayPending()
         }
       } finally {
         syncingRef.current = false
@@ -200,8 +237,11 @@ export default function PosScreen() {
 
   const holdOrder = () => {
     if (lines.length === 0) return
-    setHeldOrders((prev) => [...prev, { lines, heldAt: Date.now() }])
+    const held = { id: uuid(), lines, heldAt: Date.now() }
+    setHeldOrders((prev) => [...prev, held])
     setLines([])
+    // Persist so the parked cart survives a reload/crash (EF-05); state is only a mirror.
+    putHeldOrder(held).catch(() => {})
     showToast('Order held')
   }
 
@@ -231,6 +271,7 @@ export default function PosScreen() {
     }
     setLines(held.lines)
     setHeldOrders((prev) => prev.filter((_, i) => i !== idx))
+    if (held.id) deleteHeldOrder(held.id).catch(() => {})
     setShowHeld(false)
     showToast('Order resumed')
   }
@@ -249,7 +290,7 @@ export default function PosScreen() {
       {/* Header */}
       <header className="bg-brand-primary text-white px-4 py-3 flex items-center gap-3">
         <span className="font-bold text-lg flex-1 tracking-wide">Everfresh POS</span>
-        {!navigator.onLine && (
+        {!online && (
           <span className="text-xs bg-amber-500 px-2 py-0.5 rounded-full font-semibold">OFFLINE</span>
         )}
         {heldOrders.length > 0 && (

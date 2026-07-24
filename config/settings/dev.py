@@ -12,9 +12,12 @@ MIDDLEWARE = [  # noqa: F405
 
 INTERNAL_IPS = ['127.0.0.1']
 
-# Local dev and the test suite log in freely; the 10/min brute-force
-# throttle only makes sense against the public internet.
-REST_FRAMEWORK = {**REST_FRAMEWORK, 'DEFAULT_THROTTLE_RATES': {'login': '1000/min'}}  # noqa: F405
+# Local dev and the test suite log in freely; the brute-force throttles only
+# make sense against the public internet. Both login buckets are lifted.
+REST_FRAMEWORK = {  # noqa: F405
+    **REST_FRAMEWORK,  # noqa: F405
+    'DEFAULT_THROTTLE_RATES': {'login': '1000/min', 'login_user': '1000/min'},
+}
 
 # Mock gateway is dev/test only — it settles payments on command.
 PAYMENT_GATEWAYS = ['fonepay', 'mock']

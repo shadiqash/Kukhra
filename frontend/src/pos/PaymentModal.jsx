@@ -5,7 +5,8 @@ import {
 } from '../api'
 import { cachePendingOrder } from './offline/db'
 import { printReceipt } from './printReceipt'
-import { formatMoney, vatForLines } from '../utils/formatters'
+import { formatMoney, paisaToAmount, vatForLines } from '../utils/formatters'
+import { uuid } from '../utils/uuid'
 
 const METHODS = ['cash', 'card', 'fonepay']
 
@@ -109,6 +110,13 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
   // step instead of creating a duplicate order/payment.
   const progress = useRef({ order: null, linesDone: false, paymentDone: false, triedCheckout: false })
 
+  // One idempotency key per cart (EF-01). Every attempt for this sale — the fast
+  // atomic checkout, the step-by-step fallback, and any offline replay — carries
+  // this same client_txn_id, so a checkout that committed but whose response was
+  // lost is collapsed back to the original order server-side instead of ringing a
+  // duplicate. Stable for the life of this modal instance (one cart).
+  const txnId = useRef(uuid())
+
   async function submit() {
     if (method === 'cash' && tenderedPaisa < total) {
       setError('Cash tendered is less than total')
@@ -122,6 +130,7 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
     setError('')
     try {
       const order = {
+        client_txn_id: txnId.current,
         fulfilled_location: locationId,
         session: session?.id ?? null,
         source: 'counter',
@@ -266,7 +275,7 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
       {!vat && <div className="mb-4" />}
 
       {error && <p className="text-brand-danger text-sm mb-3">{error}</p>}
-      {!navigator.onLine && (
+      {!online && (
         <p className="text-amber-600 text-xs mb-3 bg-amber-50 rounded px-3 py-2">
           Offline — order will be queued and synced when connection restores.
         </p>
@@ -293,9 +302,9 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
           <label className="block text-xs text-text-secondary mb-1">Cash Tendered (Rs)</label>
           <input
             type="number"
-            min={total / 100}
+            min={paisaToAmount(total)}
             step="1"
-            placeholder={String(total / 100)}
+            placeholder={paisaToAmount(total)}
             value={tendered}
             onChange={(e) => setTendered(e.target.value)}
             className="w-full border border-brand-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-primary"

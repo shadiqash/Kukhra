@@ -38,10 +38,30 @@ docker compose -f docker-compose.prod.yml exec backend python manage.py createsu
 - `config/settings/prod.py`: HSTS, secure cookies, SSL redirect (all
   toggled off together by `SECURE_SSL_REDIRECT=false` for LAN deployments),
   `X-Forwarded-Proto` trusted from the nginx proxy.
-- Login endpoint (`/api/auth/token/`) is throttled to `LOGIN_THROTTLE_RATE`
-  (default 10/min per IP) against brute force; counts are shared across
-  gunicorn workers via the Redis cache.
+- The SPA is served with a strict `Content-Security-Policy`
+  (`frontend/nginx.conf`): `script-src 'self'`, so an injected inline handler
+  cannot execute even if untrusted text reaches the DOM. The Django admin and
+  DRF surfaces get a companion CSP from `config.middleware.SecurityHeadersMiddleware`.
+- Login endpoint (`/api/auth/token/`) is rate-limited two ways against brute
+  force: per client IP (`LOGIN_THROTTLE_RATE`, default 10/min) and per submitted
+  username (`LOGIN_USER_THROTTLE_RATE`, default 5/min), so a shared NAT can't
+  lock out an outlet and one account can't be sprayed from many IPs. Counts are
+  shared across gunicorn workers via the Redis cache. Behind the proxy, set
+  `NUM_PROXIES` (default 1) so the per-IP bucket keys on the real client, not nginx.
 - The backend container runs as a non-root user.
+
+> **⚠ Plaintext LAN caveat (SECURE_SSL_REDIRECT=false).** In this mode there is
+> no TLS, so the JWT bearer tokens the POS sends on every request cross the LAN
+> in cleartext and are sniffable by anyone on the segment. Only use it on a
+> physically isolated / trusted outlet network (dedicated VLAN, no guest Wi-Fi),
+> and prefer terminating TLS (see **TLS** below) even on the LAN where possible.
+
+> **Token storage follow-up.** The SPA currently keeps the access and 7-day
+> refresh tokens in `localStorage`. The CSP above caps the XSS blast radius; the
+> stronger fix is to move the refresh token into an `HttpOnly; Secure; SameSite`
+> cookie with the access token held only in memory. That is an auth-flow change
+> (backend sets/reads the cookie, CSRF handling on refresh) and is tracked as a
+> follow-up rather than shipped here.
 
 ## Backups
 

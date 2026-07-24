@@ -20,6 +20,11 @@ CSRF_TRUSTED_ORIGINS = [
 # Django knows the original request was secure.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# One proxy (nginx) sits in front, so the real client IP is the last entry it
+# appended to X-Forwarded-For. Tell DRF's throttling to key on that rather than the
+# proxy's address or a spoofable first XFF entry (EF-09). Raise if extra proxies exist.
+REST_FRAMEWORK = {**REST_FRAMEWORK, 'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', 1))}  # noqa: F405
+
 # HTTPS enforcement. Default on; set SECURE_SSL_REDIRECT=false only for
 # LAN-only outlet deployments where no TLS certificate exists.
 _https_on = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() != 'false'
