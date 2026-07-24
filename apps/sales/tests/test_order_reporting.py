@@ -103,9 +103,11 @@ def test_date_range_filter_is_inclusive(client, outlet_a):
     make_order(outlet_a, 2000, created_at=yesterday)
     make_order(outlet_a, 4000, created_at=last_week)
 
+    # localdate: created_at__date compares in TIME_ZONE (Asia/Kathmandu), so the
+    # UTC .date() would be one day behind between 18:15 and 24:00 UTC.
     res = client.get('/api/orders/summary/', {
-        'date_from': yesterday.date().isoformat(),
-        'date_to': today.date().isoformat(),
+        'date_from': timezone.localdate(yesterday).isoformat(),
+        'date_to': timezone.localdate(today).isoformat(),
     })
     assert res.data['order_count'] == 2
     assert res.data['gross_paisa'] == 3000
@@ -118,8 +120,8 @@ def test_today_only(client, outlet_a):
     make_order(outlet_a, 8000, created_at=today - timedelta(days=3))
 
     res = client.get('/api/orders/summary/', {
-        'date_from': today.date().isoformat(),
-        'date_to': today.date().isoformat(),
+        'date_from': timezone.localdate(today).isoformat(),
+        'date_to': timezone.localdate(today).isoformat(),
     })
     assert res.data['order_count'] == 1
     assert res.data['gross_paisa'] == 1500

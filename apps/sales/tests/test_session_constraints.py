@@ -23,13 +23,17 @@ def counter(db, outlet):
 
 
 @pytest.fixture
-def cashier(db):
-    return User.objects.create_user(username='cashier_sc', password='x', role=Role.CASHIER)
+def cashier(db, outlet):
+    u = User.objects.create_user(username='cashier_sc', password='x', role=Role.CASHIER)
+    u.assigned_locations.add(outlet)
+    return u
 
 
 @pytest.fixture
-def cashier2(db):
-    return User.objects.create_user(username='cashier_sc2', password='x', role=Role.CASHIER)
+def cashier2(db, outlet):
+    u = User.objects.create_user(username='cashier_sc2', password='x', role=Role.CASHIER)
+    u.assigned_locations.add(outlet)
+    return u
 
 
 @pytest.mark.django_db

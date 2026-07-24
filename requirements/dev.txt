@@ -3,4 +3,5 @@ django-debug-toolbar>=4.2
 pytest>=7.4
 pytest-django>=4.7
 pytest-cov>=4.1
+pytest-xdist>=3.5
 factory-boy>=3.3
