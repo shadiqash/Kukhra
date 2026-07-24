@@ -1,5 +1,6 @@
 import { formatBSDate } from '../utils/formatBSDate'
 import { formatMoney } from '../utils/formatters'
+import { escapeHtml } from '../utils/escapeHtml'
 
 const COMPANY_NAME    = 'Everfresh Poultry Pvt. Ltd.'
 const COMPANY_ADDRESS = 'Kathmandu, Nepal'
@@ -24,7 +25,7 @@ export function printInvoice(inv) {
     return `
       <tr>
         <td>${i + 1}</td>
-        <td>${l.product_name ?? l.product}</td>
+        <td>${escapeHtml(l.product_name ?? l.product)}</td>
         <td class="center">${taxLabel}</td>
         <td class="right">${qty}</td>
         <td class="right">${formatMoney(l.unit_paisa)}</td>
@@ -73,10 +74,10 @@ export function printInvoice(inv) {
       <p><strong>PAN:</strong> ${COMPANY_PAN}</p>
     </div>
     <div class="invoice-meta">
-      <p><strong>Invoice No:</strong> ${inv.invoice_number}</p>
+      <p><strong>Invoice No:</strong> ${escapeHtml(inv.invoice_number)}</p>
       <p><strong>Date:</strong> ${bsDate}</p>
-      ${inv.customer_name ? `<p><strong>Customer:</strong> ${inv.customer_name}</p>` : ''}
-      ${inv.customer_pan  ? `<p><strong>Customer PAN:</strong> ${inv.customer_pan}</p>` : ''}
+      ${inv.customer_name ? `<p><strong>Customer:</strong> ${escapeHtml(inv.customer_name)}</p>` : ''}
+      ${inv.customer_pan  ? `<p><strong>Customer PAN:</strong> ${escapeHtml(inv.customer_pan)}</p>` : ''}
     </div>
   </div>
 
@@ -111,7 +112,7 @@ export function printInvoice(inv) {
 
   <div class="footer">
     <p>This is a computer-generated invoice. No signature required.</p>
-    <p>CBMS Status: ${inv.cbms_status ?? '—'}</p>
+    <p>CBMS Status: ${escapeHtml(inv.cbms_status ?? '—')}</p>
   </div>
 </body>
 </html>`

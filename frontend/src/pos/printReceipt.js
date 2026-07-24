@@ -1,5 +1,6 @@
 import { formatBSDate } from '../utils/formatBSDate'
 import { formatMoney, vatForLines } from '../utils/formatters'
+import { escapeHtml } from '../utils/escapeHtml'
 
 const STORE_NAME = 'Everfresh Poultry'
 const STORE_ADDRESS = 'Kathmandu, Nepal'
@@ -42,11 +43,11 @@ export function printReceipt({ order, lines, method, tenderedPaisa, outletName, 
     const price  = formatMoney(l.price_paisa)
     const total  = formatMoney(l.line_total_paisa)
     const vatTag = l.tax_class === 'taxable' ? '*' : ' '
-    const name   = l.product_name.substring(0, 20)
+    const name   = escapeHtml(l.product_name.substring(0, 20))
     return `${vatTag}${name}\n  ${qtyStr} x ${price} = ${total}`
   }).join('\n')
 
-  const methodLabel = { cash: 'Cash', card: 'Card', esewa: 'eSewa', khalti: 'Khalti' }[method] ?? method
+  const methodLabel = { cash: 'Cash', card: 'Card', esewa: 'eSewa', khalti: 'Khalti' }[method] ?? escapeHtml(method)
 
   const html = `<!DOCTYPE html>
 <html>
@@ -79,7 +80,7 @@ export function printReceipt({ order, lines, method, tenderedPaisa, outletName, 
 </head>
 <body>
   <div class="center bold large">${STORE_NAME}</div>
-  <div class="center small">${outletName ?? STORE_ADDRESS}</div>
+  <div class="center small">${escapeHtml(outletName ?? STORE_ADDRESS)}</div>
   <div class="center small">PAN: ${STORE_PAN}</div>
   <div class="divider"></div>
   <div class="row"><span>Receipt #:</span><span class="bold">${receiptNo}</span></div>
@@ -94,7 +95,7 @@ export function printReceipt({ order, lines, method, tenderedPaisa, outletName, 
   <div class="row bold large" style="margin-top:2mm;"><span>TOTAL</span><span>${formatMoney(grandTotal)}</span></div>
   ${vatPaisa > 0 ? `<div class="small vat-note">Prices are inclusive of 13% VAT.</div>` : ''}
   <div class="divider"></div>
-  <div class="row"><span>Payment</span><span>${methodLabel}${ref ? ` (${ref})` : ''}</span></div>
+  <div class="row"><span>Payment</span><span>${methodLabel}${ref ? ` (${escapeHtml(ref)})` : ''}</span></div>
   ${method === 'cash' && tenderedPaisa ? `<div class="row"><span>Tendered</span><span>${formatMoney(tenderedPaisa)}</span></div>` : ''}
   ${changePaisa > 0 ? `<div class="row bold"><span>Change</span><span>${formatMoney(changePaisa)}</span></div>` : ''}
   <div class="divider"></div>

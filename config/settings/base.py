@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'config.middleware.SecurityHeadersMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -92,6 +93,12 @@ DATABASES = {
         'PASSWORD': os.environ['DB_PASSWORD'],
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '5432'),
+        # EF-13: two test runs sharing one machine collide on the default test
+        # database name (`test_<DB_NAME>`) — one drops it while the other is using
+        # it, surfacing as DuplicateDatabase / "being accessed by other users".
+        # Setting TEST_DB_NAME per CI shard (or per developer) gives each run its
+        # own database. Unset → Django's default name, unchanged for single runs.
+        'TEST': {'NAME': os.environ.get('TEST_DB_NAME') or None},
     }
 }
 
@@ -129,11 +136,17 @@ REST_FRAMEWORK = {
     # Clients iterate via the 'next'/'previous' links in the response envelope.
     'DEFAULT_PAGINATION_CLASS': 'config.pagination.StandardPagePagination',
     'PAGE_SIZE': 50,
-    # Only the login endpoint is throttled (scope 'login'); authenticated
-    # traffic is unthrottled — POS terminals burst legitimately.
+    # Only the login endpoint is throttled; authenticated traffic is unthrottled —
+    # POS terminals burst legitimately. Two login buckets: per client IP ('login')
+    # and per submitted username ('login_user', EF-09).
     'DEFAULT_THROTTLE_RATES': {
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '10/min'),
+        'login_user': os.environ.get('LOGIN_USER_THROTTLE_RATE', '5/min'),
     },
+    # Behind the nginx proxy the client IP is in X-Forwarded-For; tell DRF how many
+    # proxies sit in front so the per-IP login throttle keys on the real client, not
+    # the proxy. Overridable for deployments with a different proxy depth.
+    'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', 0)) or None,
 }
 
 # ── JWT ────────────────────────────────────────────────────────────────────────

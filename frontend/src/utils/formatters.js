@@ -1,9 +1,23 @@
 import NepaliDate from 'nepali-date-converter';
 
-// Prices are always integer paisa
-export const formatMoney = (paisa) => {
-  const rupees = paisa / 100;
-  return `Rs. ${rupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Prices are always integer paisa (Rule 3: money never touches float). Split the
+// integer into rupees and paise with divmod and format each part on its own, rather
+// than dividing into a float and hoping toLocaleString rounds it back.
+export const rupeesFromPaisa = (paisa) => {
+  const neg = paisa < 0;
+  const abs = Math.abs(Math.trunc(paisa));
+  const rupees = Math.floor(abs / 100);
+  const paise = abs % 100;
+  return `${neg ? '-' : ''}${rupees.toLocaleString('en-IN')}.${String(paise).padStart(2, '0')}`;
+};
+
+export const formatMoney = (paisa) => `Rs. ${rupeesFromPaisa(paisa)}`;
+
+// Bare "113.50" rupee string for number-input min/placeholder values, still derived
+// from integer paisa rather than a float division.
+export const paisaToAmount = (paisa) => {
+  const abs = Math.abs(Math.trunc(paisa));
+  return `${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
 };
 
 export const formatWeight = (kg) => {

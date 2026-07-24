@@ -22,24 +22,12 @@ def nightly_rollup(target_date: str | None = None):
     else:
         rollup_date = (timezone.now() - timedelta(days=1)).date()
 
-    agg = (
-        Order.objects
-        .filter(
-            status=OrderStatus.FULFILLED,
-            created_at__date=rollup_date,
-        )
-        .aggregate(
-            total_orders=Sum('id', distinct=True),  # count proxy
-            total_revenue=Sum('total_paisa'),
-        )
-    )
-
-    order_count = Order.objects.filter(
+    day_orders = Order.objects.filter(
         status=OrderStatus.FULFILLED,
         created_at__date=rollup_date,
-    ).count()
-
-    total_revenue = agg['total_revenue'] or 0
+    )
+    order_count = day_orders.count()
+    total_revenue = day_orders.aggregate(total_revenue=Sum('total_paisa'))['total_revenue'] or 0
 
     rollup, created = DailySalesRollup.objects.update_or_create(
         date=rollup_date,
