@@ -28,7 +28,9 @@ export function ToastProvider({ children }) {
     (kind, message) => {
       const id = ++idRef.current
       setToasts((ts) => [...ts.slice(-3), { id, kind, message }])
-      setTimeout(() => dismiss(id), 4000)
+      // Long enough that the Dismiss button is actually reachable; errors
+      // linger longer since the user may need to read and act on them.
+      setTimeout(() => dismiss(id), kind === 'error' ? 8000 : 6000)
     },
     [dismiss],
   )
