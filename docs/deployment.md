@@ -43,6 +43,22 @@ docker compose -f docker-compose.prod.yml exec backend python manage.py createsu
   gunicorn workers via the Redis cache.
 - The backend container runs as a non-root user.
 
+## Backups
+
+`deploy/backup_db.sh` dumps the Postgres container nightly and keeps the
+last 14 dumps (tune with `BACKUP_DIR` / `BACKUP_KEEP`). Install it on the
+host cron:
+
+```bash
+crontab -e
+# 30 2 * * * /opt/everfresh/deploy/backup_db.sh >> /var/log/everfresh-backup.log 2>&1
+```
+
+Restore instructions are in the script header. Test a restore against a
+scratch database after the first backup and then periodically — an untested
+backup is not a backup. Copy dumps off the host (object storage, another
+machine) so a dead disk doesn't take the backups with it.
+
 ## TLS
 
 The bundled nginx listens on plain HTTP (`HTTP_PORT`, default 80). For a
