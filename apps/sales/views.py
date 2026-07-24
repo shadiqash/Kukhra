@@ -1,12 +1,13 @@
+import uuid
 from datetime import date
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import BigIntegerField, Count, OuterRef, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from apps.accounts.models import Role
@@ -29,6 +30,7 @@ from .serializers import (
     OrderLineSerializer,
     OrderSerializer,
     PaymentSerializer,
+    cashier_may_write_location,
 )
 
 
@@ -283,6 +285,11 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='fulfill')
     def fulfill(self, request, pk=None):
         order = self.get_object()
+        # EF-04: a cashier may only fulfil an order tied to their outlet — one on
+        # their own session, or at an assigned location. get_object does not
+        # location-scope for cashiers, so enforce it here.
+        if not cashier_may_write_location(request.user, order.fulfilled_location_id, order.session):
+            raise PermissionDenied('That order is at an outlet you are not assigned to.')
         try:
             order.fulfill(user=request.user)
         except RuntimeError as exc:
@@ -314,16 +321,43 @@ class OrderViewSet(viewsets.ModelViewSet):
         (the POS one-shot checkout), create the order, its lines, its
         payments, and fulfill it — all in a single DB transaction — so a
         mid-sequence failure never leaves a partial order behind.
+
+        Idempotency (EF-01): if the payload carries a client_txn_id we have already
+        seen, the sale committed on an earlier attempt whose response was lost — return
+        that original order (HTTP 200) rather than ringing a duplicate.
         """
-        if isinstance(request.data, dict) and 'lines' in request.data:
+        txn_id = request.data.get('client_txn_id') if isinstance(request.data, dict) else None
+        if txn_id is not None:
             try:
-                return self._checkout(request)
-            except (RuntimeError, ValueError) as exc:
-                # RuntimeError: insufficient stock. ValueError: a payment intent that
-                # was spent, unverified, or for the wrong amount. Both roll the
-                # transaction back and neither is a server fault.
-                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return super().create(request, *args, **kwargs)
+                txn_id = uuid.UUID(str(txn_id))
+            except (ValueError, TypeError):
+                # Malformed key — don't 500 on the lookup; let the serializer return
+                # a clean 400 for the bad UUID during normal validation below.
+                txn_id = None
+        if txn_id is not None:
+            existing = Order.objects.filter(client_txn_id=txn_id).first()
+            if existing is not None:
+                return Response(OrderSerializer(existing).data, status=status.HTTP_200_OK)
+
+        try:
+            if isinstance(request.data, dict) and 'lines' in request.data:
+                try:
+                    return self._checkout(request)
+                except (RuntimeError, ValueError) as exc:
+                    # RuntimeError: insufficient stock. ValueError: a payment intent that
+                    # was spent, unverified, or for the wrong amount. Both roll the
+                    # transaction back and neither is a server fault.
+                    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            # Two identical requests raced (e.g. two tabs replaying the same queued
+            # order): the first committed the client_txn_id, the second tripped the
+            # unique constraint. Hand back the winner instead of a 500.
+            if txn_id:
+                existing = Order.objects.filter(client_txn_id=txn_id).first()
+                if existing is not None:
+                    return Response(OrderSerializer(existing).data, status=status.HTTP_200_OK)
+            raise
 
     @transaction.atomic
     def _checkout(self, request):
@@ -332,6 +366,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         data = serializer.validated_data
 
         order = Order.objects.create(
+            client_txn_id=data.get('client_txn_id'),
             customer=data.get('customer'),
             fulfilled_location=data['fulfilled_location'],
             session=data.get('session'),
@@ -381,6 +416,15 @@ class OrderLineViewSet(viewsets.ModelViewSet):
             qs = qs.filter(order__fulfilled_location__in=loc_ids)
         return qs
 
+    def perform_create(self, serializer):
+        # EF-04: a cashier must not attach lines to an order at another outlet.
+        order = serializer.validated_data.get('order')
+        if order is not None and not cashier_may_write_location(
+            self.request.user, order.fulfilled_location_id, order.session,
+        ):
+            raise PermissionDenied('That order is at an outlet you are not assigned to.')
+        serializer.save()
+
 
 class PaymentViewSet(viewsets.ModelViewSet):
     """
@@ -411,6 +455,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
         QR can never settle a second order. Without this the step-by-step path left
         the intent reusable and relied on a raw IntegrityError (500) to stop reuse.
         """
+        # EF-04: a cashier must not record payments against another outlet's order.
+        order = serializer.validated_data.get('order')
+        if order is not None and not cashier_may_write_location(
+            self.request.user, order.fulfilled_location_id, order.session,
+        ):
+            raise PermissionDenied('That order is at an outlet you are not assigned to.')
+
         intent = serializer.validated_data.get('intent')
         if intent is not None:
             consume_intent(intent, amount_paisa=serializer.validated_data['amount_paisa'])

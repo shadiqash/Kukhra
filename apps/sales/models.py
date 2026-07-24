@@ -62,6 +62,12 @@ class Order(BaseModel):
     Single entry point for ALL sales regardless of channel (counter / app / phone / wholesale).
     Invoice is optional — only generated when a tax invoice is needed (step 8).
     """
+    # Idempotency key. The POS mints one UUID per cart and sends it with checkout;
+    # a replay after a lost response (offline retry, dropped Wi-Fi) carries the same
+    # key, so the unique constraint collapses it back to the original order instead of
+    # creating a duplicate sale. Null for legacy/server-side orders — Postgres allows
+    # many NULLs under a unique index, so those stay unconstrained.
+    client_txn_id      = models.UUIDField(null=True, blank=True, unique=True)
     customer           = models.ForeignKey(
                              'partners.Customer', null=True, blank=True,
                              on_delete=models.SET_NULL, related_name='orders',

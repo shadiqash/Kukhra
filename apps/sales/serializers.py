@@ -19,6 +19,34 @@ from .models import (
 )
 
 
+def cashier_may_write_location(user, location_id, session):
+    """
+    May this user book a sale / move stock at `location_id`? (EF-04)
+
+    Non-cashiers pass (managers/superusers sell anywhere; outlet managers are
+    read-only elsewhere). A cashier is bound to their outlet: an open CashierSession
+    ties them to the location it runs on — and a session can only be opened at an
+    assigned outlet (see CashierSessionSerializer.validate_counter) — so a session
+    is sufficient. Without one, the location must be in assigned_locations. This is
+    the gap the finding names: session is optional, so absent this a cashier could
+    POST a sale with any fulfilled_location and deplete another outlet's ledger.
+    """
+    if getattr(user, 'role', None) != Role.CASHIER:
+        return True
+    if session is not None:
+        return True
+    return user.assigned_locations.filter(pk=location_id).exists()
+
+
+def assert_cashier_may_sell_from(request, location, session):
+    user = getattr(request, 'user', None)
+    if user is not None and not cashier_may_write_location(user, location.pk, session):
+        raise serializers.ValidationError(
+            f'Outlet "{location.name}" is not one you are assigned to sell from '
+            f'(open a shift there, or ask a manager to assign you).'
+        )
+
+
 class CashierSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashierSession
@@ -131,12 +159,22 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'customer', 'fulfilled_location', 'session',
+            'id', 'client_txn_id', 'customer', 'fulfilled_location', 'session',
             'source', 'status', 'total_paisa',
             'lines', 'payments',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'status', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        # EF-04: the bare (step-by-step) create path must scope a cashier to their
+        # own outlet too, not just one-shot checkout.
+        location = attrs.get('fulfilled_location')
+        if location is not None:
+            assert_cashier_may_sell_from(
+                self.context.get('request'), location, attrs.get('session'),
+            )
+        return attrs
 
 
 class CheckoutLineInputSerializer(serializers.Serializer):
@@ -234,6 +272,10 @@ class CheckoutSerializer(serializers.Serializer):
     One-shot POS checkout payload: an Order plus its lines and payments,
     created and fulfilled atomically by OrderViewSet.create (see views.py).
     """
+    # Idempotency key (EF-01). Optional for compatibility, but the POS always sends
+    # it; a lost-response replay carries the same value so the checkout collapses back
+    # to the original order instead of ringing a second sale.
+    client_txn_id      = serializers.UUIDField(required=False, allow_null=True)
     customer           = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all(), required=False, allow_null=True)
     fulfilled_location = serializers.PrimaryKeyRelatedField(queryset=Location.objects.all())
     session            = serializers.PrimaryKeyRelatedField(queryset=CashierSession.objects.all(), required=False, allow_null=True)
@@ -263,6 +305,10 @@ class CheckoutSerializer(serializers.Serializer):
 
         session = attrs.get('session')
         location = attrs['fulfilled_location']
+
+        # EF-04: a cashier selling without a session must still be at an assigned outlet.
+        assert_cashier_may_sell_from(self.context.get('request'), location, session)
+
         if session is not None:
             if session.closed_at is not None:
                 raise serializers.ValidationError(f'CashierSession #{session.pk} is already closed.')
