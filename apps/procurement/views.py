@@ -2,6 +2,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.accounts.audit import audit
 from apps.accounts.permissions import IsProcurementStaff
 from apps.catalog.models import Product
 from apps.lots.models import Lot
@@ -21,10 +22,12 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     def _move(self, request, pk, new_status):
         po = self.get_object()
+        old_status = po.status
         try:
             po.transition(new_status)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        audit(request.user, 'transition', po, diff={'status': [old_status, po.status]})
         return Response(PurchaseOrderSerializer(po).data)
 
     @action(detail=True, methods=['post'], url_path='send')
@@ -95,4 +98,9 @@ class GoodsReceivedViewSet(viewsets.ModelViewSet):
         except (ValueError, RuntimeError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        audit(request.user, 'receive', gr, diff={
+            'purchase_order': gr.purchase_order_id,
+            'location': gr.location_id,
+            'lines': len(lines),
+        })
         return Response(GoodsReceivedSerializer(gr).data, status=status.HTTP_200_OK)

@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
+from apps.accounts.audit import audit
 from apps.accounts.models import Role
 from apps.accounts.permissions import (
     CustomerReadOnly,
@@ -71,6 +72,8 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
             session.close(ser.validated_data['closing_counted_paisa'])
         except RuntimeError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        audit(request.user, 'close', session,
+              diff={'closing_counted_paisa': session.closing_counted_paisa})
         return Response(CashierSessionSerializer(session).data)
 
     @action(detail=False, methods=['get'], url_path='reconciliation',
@@ -332,10 +335,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         read-only and cannot cancel either.
         """
         order = self.get_object()
+        old_status = order.status
         try:
             order.cancel(user=request.user)
         except RuntimeError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        audit(request.user, 'cancel', order,
+              diff={'status': [old_status, order.status], 'total_paisa': order.total_paisa})
         return Response(OrderSerializer(order).data)
 
     def create(self, request, *args, **kwargs):

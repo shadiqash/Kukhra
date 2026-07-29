@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import mixins, viewsets
 
+from apps.accounts.audit import audit
 from apps.accounts.models import Role
 from apps.accounts.permissions import (
     IsCreditNoteReader,
@@ -55,7 +56,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         the next number under a row lock, so concurrent invoices cannot collide
         and a client can neither choose nor backdate a tax document.
         """
-        serializer.save(invoice_number=next_invoice_number(), issued_at=timezone.now())
+        invoice = serializer.save(invoice_number=next_invoice_number(), issued_at=timezone.now())
+        audit(self.request.user, 'create', invoice,
+              diff={'invoice_number': invoice.invoice_number, 'order': invoice.order_id})
 
 
 class InvoiceLineViewSet(
@@ -143,4 +146,6 @@ class CreditNoteViewSet(
     def perform_create(self, serializer):
         # The reversal document records who actually issued it, when — stamped
         # from the request, never accepted from the payload.
-        serializer.save(issued_by=self.request.user, issued_at=timezone.now())
+        note = serializer.save(issued_by=self.request.user, issued_at=timezone.now())
+        audit(self.request.user, 'create', note,
+              diff={'invoice': note.invoice_id, 'amount_paisa': note.amount_paisa})

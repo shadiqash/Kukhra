@@ -1,5 +1,6 @@
 from rest_framework import mixins, viewsets
 
+from apps.accounts.audit import audit
 from apps.accounts.permissions import (
     IsManagerOrSuperuser,
     IsPriceReader,
@@ -37,6 +38,16 @@ class PriceViewSet(
         if self.action in ('list', 'retrieve'):
             return [IsPriceReader(), OutletManagerReadOnly()]
         return [IsManagerOrSuperuser()]
+
+    def perform_create(self, serializer):
+        price = serializer.save()
+        # Price changes move real money — always audited.
+        audit(self.request.user, 'create', price, diff={
+            'product': price.product_id,
+            'tier': price.tier,
+            'price_paisa': price.price_paisa,
+            'valid_from': str(price.valid_from),
+        })
 
     def get_queryset(self):
         qs = super().get_queryset()

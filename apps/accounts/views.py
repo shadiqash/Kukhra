@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
+from .audit import audit
 from .models import AuditLog, Role
 from .permissions import IsManagerOrSuperuser
 from .serializers import (
@@ -45,6 +46,19 @@ class UserViewSet(viewsets.ModelViewSet):
             return UserCreateSerializer
         return UserSerializer
 
+    def perform_create(self, serializer):
+        user = serializer.save()
+        audit(self.request.user, 'create', user,
+              diff={'username': user.username, 'role': user.role})
+
+    def perform_update(self, serializer):
+        old_role = serializer.instance.role
+        user = serializer.save()
+        diff = {'fields': sorted(serializer.validated_data.keys() - {'password'})}
+        if user.role != old_role:
+            diff['role'] = [old_role, user.role]
+        audit(self.request.user, 'update', user, diff=diff)
+
     def destroy(self, request, *args, **kwargs):
         """
         DELETE deactivates rather than hard-deletes. Ledger rows (StockMovement,
@@ -66,6 +80,7 @@ class UserViewSet(viewsets.ModelViewSet):
             target.is_active = False
             target.save(update_fields=['is_active'])
             revoke_outstanding_tokens(target)
+            audit(request.user, 'deactivate', target, diff={'is_active': [True, False]})
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
@@ -86,6 +101,7 @@ class UserViewSet(viewsets.ModelViewSet):
         target.set_password(ser.validated_data['password'])
         target.save(update_fields=['password'])
         revoke_outstanding_tokens(target)
+        audit(request.user, 'password_reset', target)
         return Response({'detail': 'Password updated.'})
 
     @action(detail=False, methods=['post'], url_path='change-password',
@@ -102,6 +118,7 @@ class UserViewSet(viewsets.ModelViewSet):
         request.user.set_password(ser.validated_data['new_password'])
         request.user.save(update_fields=['password'])
         revoke_outstanding_tokens(request.user)
+        audit(request.user, 'password_change', request.user)
         return Response({'detail': 'Password changed.'})
 
 

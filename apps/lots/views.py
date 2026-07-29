@@ -2,6 +2,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.accounts.audit import audit
 from apps.accounts.permissions import IsLotStaff
 
 from .models import Lot
@@ -32,8 +33,10 @@ class LotViewSet(viewsets.ModelViewSet):
         lot = self.get_object()
         ser = LotTransitionSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        old_status = lot.status
         try:
             lot.transition(ser.validated_data['status'])
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        audit(request.user, 'transition', lot, diff={'status': [old_status, lot.status]})
         return Response(LotSerializer(lot).data)

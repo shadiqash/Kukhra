@@ -4,6 +4,7 @@ from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveMode
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.accounts.audit import audit
 from apps.accounts.permissions import (
     IsInventoryStaff,
     OutletManagerReadOnly,
@@ -31,7 +32,16 @@ class StockMovementViewSet(
     permission_classes = [IsInventoryStaff, OutletManagerReadOnly]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        movement = serializer.save(user=self.request.user)
+        # Manual ledger corrections (production / adjustment / wastage) are the
+        # rows a human chose to write — exactly what the audit trail is for.
+        audit(self.request.user, 'create', movement, diff={
+            'type': movement.type,
+            'product': movement.product_id,
+            'location': movement.location_id,
+            'qty_kg': str(movement.qty_kg),
+            'qty_pieces': movement.qty_pieces,
+        })
 
     def get_queryset(self):
         qs = StockMovement.objects.select_related('product', 'location', 'lot', 'user').order_by('created_at')
@@ -79,6 +89,10 @@ class StockTransferViewSet(
             transfer.confirm_receipt(user=request.user)
         except RuntimeError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        audit(request.user, 'receive', transfer, diff={
+            'from_location': transfer.from_location_id,
+            'to_location': transfer.to_location_id,
+        })
         return Response(StockTransferSerializer(transfer).data)
 
 
