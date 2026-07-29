@@ -25,6 +25,7 @@ class PaymentIntentViewSet(
     word, not anyone else's. PUT/PATCH/DELETE are structurally absent.
     """
     serializer_class = PaymentIntentSerializer
+    queryset = PaymentIntent.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     # Matrix: outlet manager is R(own) on sales — may watch intents, never create them.
     permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 

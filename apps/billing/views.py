@@ -29,6 +29,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = InvoiceSerializer
+    queryset = Invoice.objects.none()  # real queryset in get_queryset; hint for schema/param typing
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -72,6 +73,7 @@ class InvoiceLineViewSet(
     Outlet managers can read lines for invoices within their locations.
     """
     serializer_class = InvoiceLineSerializer
+    queryset = InvoiceLine.objects.none()  # real queryset in get_queryset; hint for schema/param typing
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -127,6 +129,7 @@ class CreditNoteViewSet(
     Outlet managers can read credit notes for their locations.
     """
     serializer_class = CreditNoteSerializer
+    queryset = CreditNote.objects.none()  # real queryset in get_queryset; hint for schema/param typing
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):

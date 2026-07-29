@@ -48,6 +48,7 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = CashierSessionSerializer
+    queryset = CashierSession.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 
     def get_queryset(self):
@@ -231,6 +232,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = OrderSerializer
+    queryset = Order.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     # CustomerReadOnly: matrix says customer is R(own) — app ordering is Phase 2.
     permission_classes = [IsSalesOrCustomer, IsCustomerSelf, OutletManagerReadOnly, CustomerReadOnly]
 
@@ -450,6 +452,7 @@ class OrderLineViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = OrderLineSerializer
+    queryset = OrderLine.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 
     def get_queryset(self):
@@ -480,6 +483,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     """
     http_method_names = ['get', 'post', 'head', 'options']
     serializer_class = PaymentSerializer
+    queryset = Payment.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     permission_classes = [IsSalesStaff, OutletManagerReadOnly]
 
     def get_queryset(self):

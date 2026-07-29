@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
     'corsheaders',
     # local — order matches dependency direction (core first)
     'apps.core',
@@ -147,6 +148,17 @@ REST_FRAMEWORK = {
     # proxies sit in front so the per-IP login throttle keys on the real client, not
     # the proxy. Overridable for deployments with a different proxy depth.
     'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', 0)) or None,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Everfresh Poultry API',
+    'DESCRIPTION': 'Inventory ledger + outlet POS backend. JWT auth via /api/auth/token/.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    # The schema itself is behind login: it enumerates every endpoint and
+    # parameter, which is staff-facing documentation, not public surface.
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.IsAuthenticated'],
 }
 
 # ── JWT ────────────────────────────────────────────────────────────────────────

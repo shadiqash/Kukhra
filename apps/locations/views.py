@@ -10,6 +10,7 @@ from .serializers import CounterSerializer, LocationSerializer
 class LocationViewSet(viewsets.ModelViewSet):
     """Outlet managers see only their assigned locations (read-only)."""
     serializer_class = LocationSerializer
+    queryset = Location.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     permission_classes = [ReadOnlyOrManager, OutletManagerReadOnly]
 
     def get_queryset(self):
@@ -28,6 +29,7 @@ class CounterViewSet(viewsets.ModelViewSet):
     every outlet's till at the same counter.
     """
     serializer_class = CounterSerializer
+    queryset = Counter.objects.none()  # real queryset in get_queryset; hint for schema/param typing
     permission_classes = [ReadOnlyOrManager, OutletManagerReadOnly]
 
     def get_queryset(self):

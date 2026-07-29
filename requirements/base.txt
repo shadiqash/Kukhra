@@ -5,5 +5,6 @@ psycopg2-binary>=2.9
 celery[redis]>=5.3
 redis>=5.0
 django-cors-headers>=4.3
+drf-spectacular>=0.27
 python-dotenv>=1.0
 requests>=2.31
