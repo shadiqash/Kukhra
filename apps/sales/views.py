@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import IntegrityError, transaction
 from django.db.models import BigIntegerField, Count, OuterRef, Subquery, Sum
@@ -118,18 +118,23 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
             .values('n')
         )
 
-        sessions = self.get_queryset().annotate(
+        sessions = self.get_queryset().select_related('counter__location').annotate(
             cash_sales_paisa=Coalesce(Subquery(cash_taken), 0, output_field=BigIntegerField()),
             sales_total_paisa=Coalesce(Subquery(sales_total), 0, output_field=BigIntegerField()),
             sales_count=Coalesce(Subquery(sales_count), 0, output_field=BigIntegerField()),
         )
 
-        # Bounded by default: without a range this would return every shift ever opened.
+        # Bounded by default: with no range given, report the last 30 days
+        # rather than every shift ever opened.
         date_from = request.query_params.get('date_from')
         date_to = request.query_params.get('date_to')
         try:
             if date_from:
                 sessions = sessions.filter(opened_at__date__gte=date.fromisoformat(date_from))
+            elif not date_to:
+                sessions = sessions.filter(
+                    opened_at__gte=timezone.now() - timedelta(days=30)
+                )
             if date_to:
                 sessions = sessions.filter(opened_at__date__lte=date.fromisoformat(date_to))
         except ValueError:

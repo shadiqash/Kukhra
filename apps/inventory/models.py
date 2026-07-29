@@ -45,6 +45,10 @@ class StockMovement(BaseModel):
         indexes  = [
             # Hot path for current_stock(product, location)
             models.Index(fields=['product', 'location'], name='inv_mov_prod_loc_idx'),
+            # Document lookups: Order.cancel and StockTransfer.out_movements
+            # both filter on (type, ref_id) — sequential scans on an
+            # append-only table only get slower.
+            models.Index(fields=['type', 'ref_id'], name='inv_mov_type_ref_idx'),
         ]
 
     def save(self, *args, **kwargs):
