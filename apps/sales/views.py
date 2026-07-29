@@ -297,6 +297,23 @@ class OrderViewSet(viewsets.ModelViewSet):
         # location-scope for cashiers, so enforce it here.
         if not cashier_may_write_location(request.user, order.fulfilled_location_id, order.session):
             raise PermissionDenied('That order is at an outlet you are not assigned to.')
+
+        # H1: the step-by-step path must satisfy the same invariants the one-shot
+        # checkout serializer enforces before stock leaves the shelf — the header
+        # total is the sum of its lines, and payments cover it. Without this,
+        # recorded revenue was whatever the client typed.
+        lines_total = sum(l.line_total_paisa for l in order.lines.all())
+        if order.total_paisa != lines_total:
+            return Response(
+                {'detail': f'Order total {order.total_paisa} paisa ≠ sum of line totals ({lines_total}).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        paid = sum(p.amount_paisa for p in order.payments.all())
+        if paid < order.total_paisa:
+            return Response(
+                {'detail': f'Payments total {paid} paisa do not cover the order total {order.total_paisa} paisa.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             order.fulfill(user=request.user)
         except RuntimeError as exc:

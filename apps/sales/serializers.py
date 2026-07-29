@@ -14,6 +14,7 @@ from .models import (
     Order,
     OrderLine,
     OrderSource,
+    OrderStatus,
     Payment,
     PaymentMethod,
 )
@@ -45,6 +46,28 @@ def assert_cashier_may_sell_from(request, location, session):
             f'Outlet "{location.name}" is not one you are assigned to sell from '
             f'(open a shift there, or ask a manager to assign you).'
         )
+
+
+def validate_line_total(price, qty_kg, qty_pieces, claimed):
+    """
+    line_total_paisa must equal price × quantity — shared by the one-shot
+    checkout and the step-by-step OrderLine path so neither can under- or
+    over-ring a sale. Pieces are exact; weighed goods get a 1-paisa tolerance
+    because the client (JS round-half-up) and the server (Decimal round-half-
+    even) can pick different halves on an exact .5.
+    """
+    if qty_pieces:
+        expected = price.price_paisa * qty_pieces
+        if claimed != expected:
+            raise serializers.ValidationError(
+                f'line_total_paisa {claimed} ≠ price {price.price_paisa} × {qty_pieces} pcs ({expected}).'
+            )
+    else:
+        expected = int((Decimal(price.price_paisa) * qty_kg).quantize(Decimal('1')))
+        if abs(claimed - expected) > 1:
+            raise serializers.ValidationError(
+                f'line_total_paisa {claimed} ≠ price {price.price_paisa} × {qty_kg} kg (expected ~{expected}).'
+            )
 
 
 class CashierSessionSerializer(serializers.ModelSerializer):
@@ -95,8 +118,11 @@ class OrderLineSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """
         Same guards as one-shot checkout: no negative or empty lines, price must
-        belong to the product and still be active. The model fields default to 0,
-        so without this a line could sell −5 kg and mint stock on fulfil.
+        belong to the product and still be active, and the line total must equal
+        price × quantity — without that last check the step-by-step path let a
+        cashier record any revenue figure for any quantity (review finding H1).
+        The model fields default to 0, so without the quantity guards a line
+        could sell −5 kg and mint stock on fulfil.
         """
         qty_kg     = attrs.get('qty_kg')     or Decimal('0')
         qty_pieces = attrs.get('qty_pieces') or 0
@@ -104,6 +130,14 @@ class OrderLineSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Quantities must be positive.')
         if qty_kg == 0 and qty_pieces == 0:
             raise serializers.ValidationError('A line must sell some weight or some pieces.')
+
+        order = attrs.get('order')
+        if order is not None and order.status != OrderStatus.PENDING:
+            # A fulfilled order's movements are already written; a line added now
+            # would never hit the ledger. A cancelled order must stay void.
+            raise serializers.ValidationError(
+                f'Order #{order.pk} is {order.status}; lines can only be added while pending.'
+            )
 
         price = attrs.get('price')
         product = attrs.get('product')
@@ -114,6 +148,7 @@ class OrderLineSerializer(serializers.ModelSerializer):
                 )
             if price.valid_to is not None:
                 raise serializers.ValidationError(f'Price #{price.pk} is no longer active.')
+            validate_line_total(price, qty_kg, qty_pieces, attrs['line_total_paisa'])
         return attrs
 
 
@@ -129,6 +164,14 @@ class PaymentSerializer(serializers.ModelSerializer):
         gateway money needs gateway proof. Without this the DB constraint would still
         refuse the row, but as a 500 rather than a usable error.
         """
+        order = attrs.get('order')
+        if order is not None and order.status != OrderStatus.PENDING:
+            # Money recorded against a fulfilled or cancelled order never passes
+            # through reconciliation the way the sale did (review finding H2).
+            raise serializers.ValidationError(
+                f'Order #{order.pk} is {order.status}; payments can only be added while pending.'
+            )
+
         method = attrs.get('method')
         intent = attrs.get('intent')
 
@@ -206,24 +249,7 @@ class CheckoutLineInputSerializer(serializers.Serializer):
                 f'Price #{price.pk} is no longer active (closed {price.valid_to}).'
             )
 
-        # The line total must equal price × quantity.
-        claimed = attrs['line_total_paisa']
-        if qty_pieces:
-            # Pieces are exact — no rounding is possible.
-            expected = price.price_paisa * qty_pieces
-            if claimed != expected:
-                raise serializers.ValidationError(
-                    f'line_total_paisa {claimed} ≠ price {price.price_paisa} × {qty_pieces} pcs ({expected}).'
-                )
-        else:
-            # Weighed goods round to the nearest paisa. The client (JS round-half-up)
-            # and the server (Decimal round-half-even) can pick different halves on an
-            # exact .5, so allow a 1-paisa tolerance rather than hard-failing the sale.
-            expected = int((Decimal(price.price_paisa) * qty_kg).quantize(Decimal('1')))
-            if abs(claimed - expected) > 1:
-                raise serializers.ValidationError(
-                    f'line_total_paisa {claimed} ≠ price {price.price_paisa} × {qty_kg} kg (expected ~{expected}).'
-                )
+        validate_line_total(price, qty_kg, qty_pieces, attrs['line_total_paisa'])
         return attrs
 
 

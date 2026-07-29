@@ -118,6 +118,12 @@ def test_order_fulfill_creates_negative_stock_movement(
     }, format='json')
     assert line_resp.status_code == 201, line_resp.data
 
+    # Pay — fulfil now requires payments to cover the total (H1).
+    pay_resp = c.post('/api/payments/', {
+        'order': order_id, 'method': 'cash', 'amount_paisa': 150000,
+    }, format='json')
+    assert pay_resp.status_code == 201, pay_resp.data
+
     # Fulfill
     fulfill_resp = c.post(f'/api/orders/{order_id}/fulfill/')
     assert fulfill_resp.status_code == 200, fulfill_resp.data
@@ -155,17 +161,25 @@ def test_order_fulfill_multi_line_all_movements_negative(
         'fulfilled_location': outlet.pk,
         'session': session.pk,
         'source': OrderSource.COUNTER,
-        'total_paisa': 0,
+        'total_paisa': 155000,   # 1 kg × 75000 + 2 kg × 40000
     }, format='json')
     order_id = order_resp.data['id']
 
-    for prod, price, qty in [(product_kg, price_kg, '1.000'), (product2, price2, '2.000')]:
-        c.post('/api/order-lines/', {
+    for prod, price, qty, line_total in [
+        (product_kg, price_kg, '1.000', 75000),
+        (product2, price2, '2.000', 80000),
+    ]:
+        line_resp = c.post('/api/order-lines/', {
             'order': order_id, 'product': prod.pk, 'price': price.pk,
-            'qty_kg': qty, 'qty_pieces': 0, 'line_total_paisa': 10000,
+            'qty_kg': qty, 'qty_pieces': 0, 'line_total_paisa': line_total,
         }, format='json')
+        assert line_resp.status_code == 201, line_resp.data
 
-    c.post(f'/api/orders/{order_id}/fulfill/')
+    c.post('/api/payments/', {
+        'order': order_id, 'method': 'cash', 'amount_paisa': 155000,
+    }, format='json')
+    fulfill_resp = c.post(f'/api/orders/{order_id}/fulfill/')
+    assert fulfill_resp.status_code == 200, fulfill_resp.data
 
     movements = StockMovement.objects.filter(ref_id=order_id, type=MovementType.SALE)
     assert movements.count() == 2

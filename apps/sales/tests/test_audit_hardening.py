@@ -243,7 +243,14 @@ def test_double_cancel_rejected(outlet, session, price, product, cashier, manage
 # ── step-by-step payment consumes its intent ─────────────────────────────────
 
 def test_step_payment_consumes_intent(outlet, session, price, product, cashier, manager):
-    o = _make_order(outlet, session, price, product, cashier, manager)
+    # Step-path payments only attach to a *pending* order (H2), so build a bare
+    # one rather than reusing the already-fulfilled checkout order.
+    r = api(cashier).post('/api/orders/', {
+        'fulfilled_location': outlet.pk, 'session': session.pk,
+        'source': 'counter', 'total_paisa': 50000,
+    }, format='json')
+    assert r.status_code == 201, r.data
+    o = r.data
     intent = PaymentIntent.objects.create(
         gateway=Gateway.MOCK, amount_paisa=50000, location=outlet,
         status=IntentStatus.VERIFIED, created_by=cashier,

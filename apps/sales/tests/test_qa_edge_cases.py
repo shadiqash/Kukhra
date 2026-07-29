@@ -14,7 +14,7 @@ from apps.inventory.queries import current_stock
 from apps.locations.models import Counter, Location, LocationType
 from apps.lots.models import Lot, LotStatus
 from apps.sales.models import (
-    CashierSession, Order, OrderLine, OrderSource, OrderStatus,
+    CashierSession, Order, OrderLine, OrderSource, OrderStatus, Payment,
 )
 
 
@@ -110,12 +110,14 @@ def test_oversell_via_api_returns_400(outlet, session, cashier, product, price, 
     """fulfill endpoint returns 400 with detail message when stock is insufficient."""
     order = Order.objects.create(
         fulfilled_location=outlet, session=session,
-        source=OrderSource.COUNTER, total_paisa=75000,
+        source=OrderSource.COUNTER, total_paisa=375000,
     )
     OrderLine.objects.create(
         order=order, product=product, price=price,
         qty_kg=Decimal('5.000'), qty_pieces=0, line_total_paisa=375000,
     )
+    # Header reconciles and is paid — the stock check is the only thing failing.
+    Payment.objects.create(order=order, method='cash', amount_paisa=375000)
     resp = api(manager).post(f'/api/orders/{order.pk}/fulfill/')
     assert resp.status_code == 400
     assert 'Insufficient stock' in resp.data['detail']
