@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import mixins, viewsets
 
 from apps.accounts.models import Role
@@ -11,7 +12,7 @@ from apps.accounts.permissions import (
     outlet_location_ids,
 )
 
-from .models import CreditNote, Invoice, InvoiceLine, compute_line_vat
+from .models import CreditNote, Invoice, InvoiceLine, compute_line_vat, next_invoice_number
 from .serializers import CreditNoteSerializer, InvoiceLineSerializer, InvoiceSerializer
 
 
@@ -47,6 +48,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if loc_ids is not None:
             qs = qs.filter(order__fulfilled_location__in=loc_ids)
         return qs
+
+    def perform_create(self, serializer):
+        """
+        H4: number and timestamp come from the server. The sequence hands out
+        the next number under a row lock, so concurrent invoices cannot collide
+        and a client can neither choose nor backdate a tax document.
+        """
+        serializer.save(invoice_number=next_invoice_number(), issued_at=timezone.now())
 
 
 class InvoiceLineViewSet(
@@ -130,3 +139,8 @@ class CreditNoteViewSet(
         if loc_ids is not None:
             qs = qs.filter(invoice__order__fulfilled_location__in=loc_ids)
         return qs
+
+    def perform_create(self, serializer):
+        # The reversal document records who actually issued it, when — stamped
+        # from the request, never accepted from the payload.
+        serializer.save(issued_by=self.request.user, issued_at=timezone.now())

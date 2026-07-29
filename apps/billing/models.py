@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 from apps.catalog.models import TaxClass
 from apps.core.models import BaseModel
@@ -31,6 +31,33 @@ class CbmsStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'
     SYNCED  = 'synced',  'Synced'
     FAILED  = 'failed',  'Failed'
+
+
+class InvoiceSequence(models.Model):
+    """
+    Single-row counter behind server-side invoice numbering. A tax invoice
+    number must be sequential and gap-averse, and must never be chosen by the
+    client — IRD/CBMS reconciles against the sequence. Locked with
+    select_for_update so two simultaneous invoices cannot mint the same number.
+    """
+    next_number = models.PositiveBigIntegerField(default=1)
+
+
+def next_invoice_number() -> str:
+    """
+    Reserve and return the next invoice number (format INV-000001). The
+    prefix / fiscal-year reset scheme is finalized with the real CBMS
+    integration in Phase 2; the counter skips past any numbers already taken
+    by pre-existing (historically client-supplied) invoices.
+    """
+    with transaction.atomic():
+        seq, _ = InvoiceSequence.objects.select_for_update().get_or_create(pk=1)
+        n = seq.next_number
+        while Invoice.objects.filter(invoice_number=f'INV-{n:06d}').exists():
+            n += 1
+        seq.next_number = n + 1
+        seq.save(update_fields=['next_number'])
+        return f'INV-{n:06d}'
 
 
 class Invoice(BaseModel):
