@@ -113,18 +113,20 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
             .annotate(total=Sum('amount_paisa'))
             .values('total')
         )
+        # Sales figures count FULFILLED orders only — a pending order is not a
+        # sale yet (found live: a stray pending order inflated the report).
+        # Cash stays payment-based on non-cancelled orders: money physically in
+        # the drawer belongs in expected cash even if fulfilment later failed.
         sales_total = (
             Order.objects
-            .filter(session=OuterRef('pk'))
-            .exclude(status=OrderStatus.CANCELLED)
+            .filter(session=OuterRef('pk'), status=OrderStatus.FULFILLED)
             .values('session')
             .annotate(total=Sum('total_paisa'))
             .values('total')
         )
         sales_count = (
             Order.objects
-            .filter(session=OuterRef('pk'))
-            .exclude(status=OrderStatus.CANCELLED)
+            .filter(session=OuterRef('pk'), status=OrderStatus.FULFILLED)
             .values('session')
             .annotate(n=Count('id'))
             .values('n')
@@ -179,9 +181,11 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='summary')
     def summary(self, request, pk=None):
         session = self.get_object()
-        # Cancelled orders never put money in the drawer, so they must not appear
-        # in the Z-report totals or inflate the expected cash.
-        live_orders = session.orders.exclude(status=OrderStatus.CANCELLED)
+        # Z-report sales are FULFILLED orders only — cancelled orders never put
+        # money in the drawer, and a pending order is not a sale yet. The cash
+        # figures below stay payment-based (non-cancelled): cash handed over is
+        # in the drawer even if the order's fulfilment later failed.
+        live_orders = session.orders.filter(status=OrderStatus.FULFILLED)
         agg = live_orders.aggregate(
             sales_count=Count('id'),
             sales_total=Sum('total_paisa'),
@@ -297,13 +301,18 @@ class OrderViewSet(viewsets.ModelViewSet):
         GET /orders/summary/?date_from=&date_to=&fulfilled_location=
 
         Aggregate over the whole filtered set — a dashboard KPI must never be the
-        sum of one page. Cancelled orders are excluded from revenue: they are kept
-        in the ledger for audit but were never money in the till.
+        sum of one page. Only FULFILLED orders count as revenue: cancelled orders
+        were never money in the till, and a pending order is not a sale yet.
+        This matches the nightly rollup, so the dashboard and the rollup agree.
 
         Rule 7: this is a finance report. It carries its own permission rather than
         inheriting the viewset's sales-write set, which admits cashiers.
         """
-        qs = self.get_queryset().exclude(status=OrderStatus.CANCELLED)
+        qs = self.get_queryset()
+        # An explicit ?status= filter (already applied in get_queryset, e.g. to
+        # count pending orders) wins over the fulfilled-only default.
+        if not self.request.query_params.get('status'):
+            qs = qs.filter(status=OrderStatus.FULFILLED)
         agg = qs.aggregate(order_count=Count('id'), gross_paisa=Sum('total_paisa'))
         return Response({
             'order_count': agg['order_count'] or 0,
