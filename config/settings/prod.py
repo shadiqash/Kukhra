@@ -55,6 +55,12 @@ STORAGES = {
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
 
+# The mock gateway settles payments on command — a deployment with it enabled
+# would accept unverified digital money. Convention alone ("never set it in
+# prod") is not a control; fail the boot instead.
+if 'mock' in PAYMENT_GATEWAYS:  # noqa: F405
+    raise RuntimeError('The mock payment gateway must never be enabled in production.')
+
 _sentry_dsn = os.environ.get('SENTRY_DSN', '')
 if _sentry_dsn:
     import sentry_sdk

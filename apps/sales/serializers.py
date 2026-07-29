@@ -345,7 +345,7 @@ class CheckoutSerializer(serializers.Serializer):
             request = self.context.get('request')
             if (
                 request is not None
-                and getattr(request.user, 'role', None) == 'cashier'
+                and getattr(request.user, 'role', None) == Role.CASHIER
                 and session.cashier_id != request.user.pk
             ):
                 raise serializers.ValidationError(

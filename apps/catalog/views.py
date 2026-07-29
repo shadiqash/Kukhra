@@ -1,4 +1,5 @@
 from rest_framework import mixins, viewsets
+from rest_framework.exceptions import ValidationError
 
 from apps.accounts.audit import audit
 from apps.accounts.permissions import (
@@ -13,10 +14,23 @@ from .serializers import PriceSerializer, ProductSerializer
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    """Outlet managers get read-only access to the product catalog."""
+    """
+    Outlet managers get read-only access to the product catalog.
+    Filters: ?barcode=<exact> (POS scanner lookup), ?search=<name substring>.
+    """
     queryset = Product.objects.all().order_by('id')
     serializer_class = ProductSerializer
     permission_classes = [ReadOnlyOrManager, OutletManagerReadOnly]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        barcode = self.request.query_params.get('barcode')
+        if barcode:
+            qs = qs.filter(barcode=barcode)
+        search = self.request.query_params.get('search')
+        if search:
+            qs = qs.filter(name__icontains=search)
+        return qs
 
 
 class PriceViewSet(
@@ -53,7 +67,10 @@ class PriceViewSet(
         qs = super().get_queryset()
         product_id = self.request.query_params.get('product')
         if product_id:
-            qs = qs.filter(product_id=product_id)
+            try:
+                qs = qs.filter(product_id=int(product_id))
+            except ValueError:
+                raise ValidationError({'product': 'Must be an integer.'})
         tier = self.request.query_params.get('tier')
         if tier:
             qs = qs.filter(tier=tier)

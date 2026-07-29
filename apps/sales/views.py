@@ -63,6 +63,17 @@ class CashierSessionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(cashier=self.request.user, opened_at=timezone.now())
 
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            # Two terminals raced past validate_counter's open-session check;
+            # the unique constraint decided. A conflict, not a server fault.
+            return Response(
+                {'detail': 'That counter already has an open session. Close it before opening a new one.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     @action(detail=True, methods=['post'], url_path='close')
     def close(self, request, pk=None):
         session = self.get_object()
