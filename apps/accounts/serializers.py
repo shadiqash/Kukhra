@@ -1,4 +1,4 @@
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, password_validation
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -56,6 +56,25 @@ class UserSerializer(SuperuserRoleGuardMixin, serializers.ModelSerializer):
             'is_active', 'date_joined',
         ]
         read_only_fields = ['id', 'date_joined']
+
+
+class SetPasswordSerializer(serializers.Serializer):
+    """Admin reset: a manager/superuser sets a user's password directly."""
+    password = serializers.CharField(write_only=True)
+
+    def validate_password(self, value):
+        password_validation.validate_password(value, user=self.context.get('user'))
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Self-service change: proves knowledge of the current password first."""
+    current_password = serializers.CharField(write_only=True)
+    new_password     = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        password_validation.validate_password(value, user=self.context.get('user'))
+        return value
 
 
 class UserCreateSerializer(SuperuserRoleGuardMixin, serializers.ModelSerializer):
