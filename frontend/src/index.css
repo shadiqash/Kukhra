@@ -2,11 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --color-background: #f0f4f3;
+    --color-background-end: #e0e8e6;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f9faf7;
+    --color-surface-active: #f1f4f0;
+    --color-border: #e3e8e6;
+    
+    --color-text-primary: #111a18;
+    --color-text-secondary: #4a6360;
+    --color-text-muted: #718c89;
+    --color-text-inverse: #ffffff;
+  }
+
+  .dark {
+    --color-background: #0f1715;
+    --color-background-end: #070d0b;
+    --color-surface: #172421;
+    --color-surface-hover: #1e2d2a;
+    --color-surface-active: #253633;
+    --color-border: #263b37;
+
+    --color-text-primary: #eaf0ef;
+    --color-text-secondary: #a3b8b5;
+    --color-text-muted: #6b827f;
+    --color-text-inverse: #ffffff;
+  }
+}
+
 @layer components {
   .inp {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500;
+    @apply w-full border border-border bg-surface text-text-primary rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary placeholder:text-text-muted transition-colors;
   }
   .input {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500;
+    @apply w-full border border-border bg-surface text-text-primary rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary placeholder:text-text-muted transition-colors;
   }
+  
+  .glass {
+    @apply bg-white/70 dark:bg-[#172421]/70 backdrop-blur-md border border-white/40 dark:border-white/5 shadow-glass dark:shadow-glass-dark text-text-primary transition-colors;
+  }
+  
+  .glass-dark {
+    @apply bg-brand-primary/90 dark:bg-[#0f1715]/90 backdrop-blur-md border border-white/10 shadow-glass dark:shadow-glass-dark text-text-inverse transition-colors;
+  }
+
+  .card {
+    @apply bg-surface border border-border rounded-xl shadow-sm text-text-primary transition-colors;
+  }
+}
+
+@layer utilities {
+  /* Custom modern scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600 rounded-full transition-colors;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-500;
+  }
+}
+
+body {
+  @apply bg-gradient-to-br from-[var(--color-background)] to-[var(--color-background-end)] text-text-primary antialiased selection:bg-brand-primary/20 selection:text-brand-primary min-h-screen transition-colors duration-300;
 }
