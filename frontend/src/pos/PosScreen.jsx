@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ShoppingCart } from 'lucide-react'
 import { getProducts, getPrices, getCounters, getSessions } from '../api'
 import { cacheProducts, getCachedProducts, getPendingOrders, deletePendingOrder, cachePendingOrder, updatePendingOrder, getHeldOrders, putHeldOrder, deleteHeldOrder } from './offline/db'
 import { checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder } from '../api'
@@ -33,6 +34,18 @@ export default function PosScreen() {
   const [counter, setCounter] = useState(null)
   const [showShift, setShowShift] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  // Below md the cart side panel is hidden; a floating button opens it as a
+  // bottom sheet instead of forcing the cashier to scroll past the whole grid.
+  // Tracked in JS (not just CSS) so the panel — and the PaymentModal inside it,
+  // which holds an idempotency key — is only ever mounted in one place.
+  const [showCartMobile, setShowCartMobile] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const sync = (e) => setIsDesktop(e.matches)
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
   // Reactive connectivity (EF-07): reading navigator.onLine inline in JSX never
   // re-renders on a change. Track it in state driven by the online/offline events.
   const [online, setOnline] = useState(navigator.onLine)
@@ -285,6 +298,60 @@ export default function PosScreen() {
   const hasSession = !!session
   const total = grandTotal(lines)
 
+  // Shared between the desktop side panel and the mobile bottom sheet.
+  const cartPanel = showPayment ? (
+    <PaymentModal
+      lines={lines}
+      session={session}
+      locationId={counter?.location}
+      outletName={counter?.name}
+      onSuccess={({ offline }) => {
+        setLines([])
+        setShowPayment(false)
+        setShowCartMobile(false)
+        if (offline) showToast('Order queued (offline)')
+      }}
+      onCancel={() => setShowPayment(false)}
+    />
+  ) : (
+    <>
+      <div className="p-4 border-b border-brand-border flex items-center justify-between">
+        <h2 className="font-semibold text-text-primary">Cart</h2>
+        {lines.length > 0 && (
+          <div className="flex gap-2">
+            <button
+              onClick={holdOrder}
+              className="text-xs border border-amber-300 text-amber-700 px-2 py-1 rounded hover:bg-amber-50 transition-colors"
+            >
+              Hold
+            </button>
+            <button
+              onClick={voidOrder}
+              className="text-xs border border-brand-danger/30 text-brand-danger px-2 py-1 rounded hover:bg-[#fef2f2] transition-colors"
+            >
+              Void
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="flex-1 flex flex-col overflow-hidden p-2">
+        <Cart lines={lines} onRemove={removeFromCart} onQtyChange={updateQty} />
+      </div>
+      <div className="p-4 border-t border-brand-border space-y-2">
+        <button
+          onClick={() => setShowPayment(true)}
+          disabled={lines.length === 0 || !hasSession}
+          className="w-full bg-brand-primary hover:bg-brand-primaryHover text-white font-semibold py-2.5 rounded-lg disabled:opacity-40 text-sm transition-colors"
+        >
+          Pay — {formatMoney(total)}
+        </button>
+        {!hasSession && (
+          <p className="text-center text-xs text-amber-600">Open a shift to accept payments</p>
+        )}
+      </div>
+    </>
+  )
+
   return (
     <div className="h-screen flex flex-col bg-brand-surface font-sans">
       {/* Header */}
@@ -358,61 +425,46 @@ export default function PosScreen() {
           </div>
         </div>
 
-        {/* Cart panel — payment and receipt render inline here, not as overlays */}
-        <div className="w-72 bg-white border-l-[1.5px] border-brand-border flex flex-col overflow-hidden">
-          {showPayment ? (
-            <PaymentModal
-              lines={lines}
-              session={session}
-              locationId={counter?.location}
-              outletName={counter?.name}
-              onSuccess={({ offline }) => {
-                setLines([])
-                setShowPayment(false)
-                if (offline) showToast('Order queued (offline)')
-              }}
-              onCancel={() => setShowPayment(false)}
-            />
-          ) : (
-            <>
-              <div className="p-4 border-b border-brand-border flex items-center justify-between">
-                <h2 className="font-semibold text-text-primary">Cart</h2>
-                {lines.length > 0 && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={holdOrder}
-                      className="text-xs border border-amber-300 text-amber-700 px-2 py-1 rounded hover:bg-amber-50 transition-colors"
-                    >
-                      Hold
-                    </button>
-                    <button
-                      onClick={voidOrder}
-                      className="text-xs border border-brand-danger/30 text-brand-danger px-2 py-1 rounded hover:bg-[#fef2f2] transition-colors"
-                    >
-                      Void
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 flex flex-col overflow-hidden p-2">
-                <Cart lines={lines} onRemove={removeFromCart} onQtyChange={updateQty} />
-              </div>
-              <div className="p-4 border-t border-brand-border space-y-2">
-                <button
-                  onClick={() => setShowPayment(true)}
-                  disabled={lines.length === 0 || !hasSession}
-                  className="w-full bg-brand-primary hover:bg-brand-primaryHover text-white font-semibold py-2.5 rounded-lg disabled:opacity-40 text-sm transition-colors"
-                >
-                  Pay — {formatMoney(total)}
-                </button>
-                {!hasSession && (
-                  <p className="text-center text-xs text-amber-600">Open a shift to accept payments</p>
-                )}
-              </div>
-            </>
-          )}
+        {/* Cart panel — payment and receipt render inline here, not as overlays.
+            Hidden below md, where the floating button + bottom sheet take over. */}
+        <div className="w-72 bg-white border-l-[1.5px] border-brand-border hidden md:flex flex-col overflow-hidden">
+          {isDesktop && cartPanel}
         </div>
       </div>
+
+      {/* Mobile cart — floating button opens the cart as a bottom sheet */}
+      {!isDesktop && !showCartMobile && (
+        <button
+          onClick={() => setShowCartMobile(true)}
+          className="md:hidden fixed bottom-4 right-4 z-40 h-14 pl-4 pr-5 bg-brand-primary text-white rounded-full shadow-xl flex items-center gap-2.5 font-semibold text-sm"
+          aria-label="Open cart"
+        >
+          <span className="relative">
+            <ShoppingCart size={22} />
+            {lines.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-amber-500 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                {lines.length}
+              </span>
+            )}
+          </span>
+          <span className="font-mono">{formatMoney(total)}</span>
+        </button>
+      )}
+      {!isDesktop && showCartMobile && (
+        <div className="md:hidden fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/45" onClick={() => setShowCartMobile(false)} />
+          <div className="absolute inset-x-0 bottom-0 top-20 bg-white rounded-t-2xl flex flex-col overflow-hidden shadow-2xl">
+            <button
+              onClick={() => setShowCartMobile(false)}
+              className="w-full flex justify-center py-2.5 border-b border-brand-border shrink-0"
+              aria-label="Close cart"
+            >
+              <span className="w-10 h-1 bg-gray-300 rounded-full" />
+            </button>
+            {cartPanel}
+          </div>
+        </div>
+      )}
 
       {/* Held orders panel */}
       {showHeld && (

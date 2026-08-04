@@ -24,6 +24,7 @@ import FlockLog from './worker/FlockLog'
 import ProcessingEntry from './worker/ProcessingEntry'
 import ReceiveTransfer from './worker/ReceiveTransfer'
 import Wastage from './worker/Wastage'
+import PurchaseOrders from './worker/PurchaseOrders'
 
 function RoleRoot() {
   const { user, isCashier, isWorker, isManager, isAdmin } = useAuth()
@@ -105,6 +106,14 @@ export default function App() {
           element={
             <RequireAuth allow={['warehouse']}>
               <Wastage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="purchase-orders"
+          element={
+            <RequireAuth allow={['procurement']}>
+              <PurchaseOrders />
             </RequireAuth>
           }
         />

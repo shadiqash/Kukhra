@@ -50,6 +50,19 @@ docker compose -f docker-compose.prod.yml exec backend python manage.py createsu
   `NUM_PROXIES` (default 1) so the per-IP bucket keys on the real client, not nginx.
 - The backend container runs as a non-root user.
 
+> **⚠ Plaintext LAN caveat (SECURE_SSL_REDIRECT=false).** In this mode there is
+> no TLS, so the JWT bearer tokens the POS sends on every request cross the LAN
+> in cleartext and are sniffable by anyone on the segment. Only use it on a
+> physically isolated / trusted outlet network (dedicated VLAN, no guest Wi-Fi),
+> and prefer terminating TLS (see **TLS** below) even on the LAN where possible.
+
+> **Token storage follow-up.** The SPA currently keeps the access and 7-day
+> refresh tokens in `localStorage`. The CSP above caps the XSS blast radius; the
+> stronger fix is to move the refresh token into an `HttpOnly; Secure; SameSite`
+> cookie with the access token held only in memory. That is an auth-flow change
+> (backend sets/reads the cookie, CSRF handling on refresh) and is tracked as a
+> follow-up rather than shipped here.
+
 ## Backups
 
 `deploy/backup_db.sh` dumps the Postgres container nightly and keeps the
@@ -65,19 +78,6 @@ Restore instructions are in the script header. Test a restore against a
 scratch database after the first backup and then periodically — an untested
 backup is not a backup. Copy dumps off the host (object storage, another
 machine) so a dead disk doesn't take the backups with it.
-
-> **⚠ Plaintext LAN caveat (SECURE_SSL_REDIRECT=false).** In this mode there is
-> no TLS, so the JWT bearer tokens the POS sends on every request cross the LAN
-> in cleartext and are sniffable by anyone on the segment. Only use it on a
-> physically isolated / trusted outlet network (dedicated VLAN, no guest Wi-Fi),
-> and prefer terminating TLS (see **TLS** below) even on the LAN where possible.
-
-> **Token storage follow-up.** The SPA currently keeps the access and 7-day
-> refresh tokens in `localStorage`. The CSP above caps the XSS blast radius; the
-> stronger fix is to move the refresh token into an `HttpOnly; Secure; SameSite`
-> cookie with the access token held only in memory. That is an auth-flow change
-> (backend sets/reads the cookie, CSRF handling on refresh) and is tracked as a
-> follow-up rather than shipped here.
 
 ## TLS
 

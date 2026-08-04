@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { Truck, Bird, Scissors, ArrowRightLeft, Trash2, LogOut } from 'lucide-react';
+import { Truck, Bird, Scissors, ArrowRightLeft, Trash2, ClipboardList, LogOut } from 'lucide-react';
 import logoIcon from '../assets/logo-icon.png';
 
 const NAV = [
@@ -12,6 +12,8 @@ const NAV = [
   // Wastage is warehouse-only: procurement can use the PWA but has no
   // inventory-movement access on the backend.
   { to: '/worker/wastage', label: 'Wastage', icon: Trash2, roles: ['warehouse'] },
+  // Purchase orders are procurement-only: IsProcurementStaff excludes warehouse.
+  { to: '/worker/purchase-orders', label: 'Orders', icon: ClipboardList, roles: ['procurement'] },
 ];
 
 export default function WorkerLayout() {
