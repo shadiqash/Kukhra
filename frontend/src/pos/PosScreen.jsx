@@ -7,11 +7,14 @@ import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { useTheme } from '../hooks/useTheme'
 import { formatMoney } from '../utils/formatters'
 import { uuid } from '../utils/uuid'
 import Cart from './Cart'
 import PaymentModal from './PaymentModal'
 import ShiftModal from './ShiftModal'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Sun, Moon } from 'lucide-react'
 
 // Prices are VAT-inclusive, so the grand total is just the sum of the line
 // totals — VAT is already contained within each one and is broken out for the
@@ -23,6 +26,7 @@ function grandTotal(lines) {
 export default function PosScreen() {
   const { user, logout } = useAuth()
   const confirm = useConfirm()
+  const { isDark, toggleTheme } = useTheme()
   usePageTitle('Point of Sale')
   const [products, setProducts] = useState([])
   const [prices, setPrices] = useState({})
@@ -299,102 +303,118 @@ export default function PosScreen() {
   const total = grandTotal(lines)
 
   // Shared between the desktop side panel and the mobile bottom sheet.
-  const cartPanel = showPayment ? (
-    <PaymentModal
-      lines={lines}
-      session={session}
-      locationId={counter?.location}
-      outletName={counter?.name}
-      onSuccess={({ offline }) => {
-        setLines([])
-        setShowPayment(false)
-        setShowCartMobile(false)
-        if (offline) showToast('Order queued (offline)')
-      }}
-      onCancel={() => setShowPayment(false)}
-    />
-  ) : (
-    <>
-      <div className="p-4 border-b border-brand-border flex items-center justify-between">
-        <h2 className="font-semibold text-text-primary">Cart</h2>
-        {lines.length > 0 && (
-          <div className="flex gap-2">
-            <button
-              onClick={holdOrder}
-              className="text-xs border border-amber-300 text-amber-700 px-2 py-1 rounded hover:bg-amber-50 transition-colors"
-            >
-              Hold
-            </button>
-            <button
-              onClick={voidOrder}
-              className="text-xs border border-brand-danger/30 text-brand-danger px-2 py-1 rounded hover:bg-[#fef2f2] transition-colors"
-            >
-              Void
-            </button>
-          </div>
-        )}
-      </div>
-      <div className="flex-1 flex flex-col overflow-hidden p-2">
-        <Cart lines={lines} onRemove={removeFromCart} onQtyChange={updateQty} />
-      </div>
-      <div className="p-4 border-t border-brand-border space-y-2">
-        <button
-          onClick={() => setShowPayment(true)}
-          disabled={lines.length === 0 || !hasSession}
-          className="w-full bg-brand-primary hover:bg-brand-primaryHover text-white font-semibold py-2.5 rounded-lg disabled:opacity-40 text-sm transition-colors"
+  const cartPanel = (
+    <AnimatePresence mode="wait">
+      {showPayment ? (
+        <PaymentModal
+          key="payment"
+          lines={lines}
+          session={session}
+          locationId={counter?.location}
+          outletName={counter?.name}
+          onSuccess={({ offline }) => {
+            setLines([])
+            setShowPayment(false)
+            setShowCartMobile(false)
+            if (offline) showToast('Order queued (offline)')
+          }}
+          onCancel={() => setShowPayment(false)}
+        />
+      ) : (
+        <motion.div
+          key="cart"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          className="flex-1 flex flex-col h-full w-full absolute inset-0 bg-surface rounded-[inherit]"
         >
-          Pay — {formatMoney(total)}
-        </button>
-        {!hasSession && (
-          <p className="text-center text-xs text-amber-600">Open a shift to accept payments</p>
-        )}
-      </div>
-    </>
+          <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
+            <h2 className="font-semibold text-text-primary">Cart</h2>
+            {lines.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={holdOrder}
+                  className="text-xs border border-amber-500/50 text-amber-600 dark:text-amber-400 px-3 py-1.5 rounded-lg hover:bg-amber-500/10 transition-colors font-medium"
+                >
+                  Hold
+                </button>
+                <button
+                  onClick={voidOrder}
+                  className="text-xs border border-brand-danger/50 text-brand-danger px-3 py-1.5 rounded-lg hover:bg-brand-danger/10 transition-colors font-medium"
+                >
+                  Void
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 flex flex-col overflow-hidden p-2 min-h-0">
+            <Cart lines={lines} onRemove={removeFromCart} onQtyChange={updateQty} />
+          </div>
+          <div className="p-4 border-t border-border space-y-2 shrink-0 bg-surface-hover">
+            <button
+              onClick={() => setShowPayment(true)}
+              disabled={lines.length === 0 || !hasSession}
+              className="w-full bg-gradient-to-r from-brand-primary to-brand-primaryHover text-white font-bold py-3.5 rounded-xl shadow-md hover:shadow-lg disabled:opacity-40 disabled:hover:scale-100 disabled:hover:shadow-md hover:scale-[1.02] active:scale-[0.98] text-sm transition-all"
+            >
+              Pay — {formatMoney(total)}
+            </button>
+            {!hasSession && (
+              <p className="text-center text-xs text-amber-600 dark:text-amber-400 font-medium pt-1">Open a shift to accept payments</p>
+            )}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 
   return (
-    <div className="h-screen flex flex-col bg-brand-surface font-sans">
+    <div className="h-screen flex flex-col bg-background font-sans transition-colors duration-300">
       {/* Header */}
-      <header className="bg-brand-primary text-white px-4 py-3 flex items-center gap-3">
-        <span className="font-bold text-lg flex-1 tracking-wide">Everfresh POS</span>
+      <header className="glass-dark px-6 py-4 flex items-center gap-4 z-20 border-b border-white/10 shadow-md">
+        <span className="font-black text-xl flex-1 tracking-tight text-text-inverse drop-shadow-md">Everfresh POS</span>
         {!online && (
-          <span className="text-xs bg-amber-500 px-2 py-0.5 rounded-full font-semibold">OFFLINE</span>
+          <span className="text-xs bg-amber-500 px-3 py-1 rounded-full font-bold text-white shadow-sm">OFFLINE</span>
         )}
         {heldOrders.length > 0 && (
           <button
             onClick={() => setShowHeld(true)}
-            className="text-xs bg-amber-500 hover:bg-amber-600 px-3 py-1 rounded-full font-semibold transition-colors"
+            className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded-full font-bold transition-colors shadow-sm"
           >
             {heldOrders.length} Held
           </button>
         )}
-        <span className="text-sm text-white/80">{user?.username}</span>
+        <span className="text-sm font-medium text-text-inverse/80">{user?.username}</span>
+        <button onClick={toggleTheme} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/90 hover:bg-white/20 transition-colors shadow-sm" title="Toggle Theme">
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <button
           onClick={() => setShowShift(true)}
-          className={`text-xs px-3 py-1 rounded-full font-semibold border transition-colors ${
+          disabled={!hasSession && !counterLoaded}
+          className={`text-xs px-4 py-1.5 rounded-full font-bold border transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
             hasSession
-              ? 'border-brand-danger/40 bg-brand-danger hover:bg-[#991b1b]'
-              : 'border-white/60 hover:bg-white/10'
+              ? 'border-brand-danger/40 bg-brand-danger hover:bg-red-800 text-white'
+              : 'border-white/40 hover:bg-white/10 text-white'
           }`}
         >
-          {hasSession ? 'Close Shift' : 'Open Shift'}
+          {hasSession ? 'Close Shift' : counterLoaded ? 'Open Shift' : 'Loading…'}
         </button>
-        <button onClick={logout} className="text-xs text-white/70 hover:text-white transition-colors">
+        <button onClick={logout} className="text-xs font-semibold text-text-inverse/70 hover:text-text-inverse transition-colors ml-2">
           Sign out
         </button>
       </header>
 
       <div className="flex flex-1 min-h-0">
         {/* Product grid */}
-        <div className="flex-1 flex flex-col p-4 min-w-0">
+        <div className="flex-1 flex flex-col p-4 md:p-6 min-w-0">
           <input
             type="text"
             placeholder="Search products or scan barcode…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full border-[1.5px] border-brand-border rounded-xl px-4 py-2.5 text-sm mb-4 focus:outline-none focus:border-brand-primary bg-white"
+            className="w-full border-2 border-border rounded-xl px-5 py-3.5 text-[15px] font-medium mb-6 focus:outline-none focus:border-brand-primary bg-surface text-text-primary placeholder:text-text-muted shadow-sm transition-all"
           />
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 overflow-y-auto px-1 pb-6 custom-scrollbar">
             {filtered.map((p) => {
               const price = prices[p.id]
               return (
@@ -402,32 +422,35 @@ export default function PosScreen() {
                   key={p.id}
                   onClick={() => addToCart(p)}
                   disabled={!hasSession}
-                  className="bg-white rounded-xl shadow-sm border-[1.5px] border-brand-border p-3 text-left hover:border-brand-primary hover:shadow-md transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="glass rounded-2xl p-5 text-left hover:scale-[1.04] hover:shadow-xl hover:border-brand-primary/30 dark:hover:border-brand-primary/50 active:scale-[0.97] transition-all duration-200 ease-out disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 flex flex-col relative min-h-[164px] group"
                 >
-                  <p className="font-medium text-sm text-text-primary mb-1">{p.name}</p>
-                  <p className="text-xs text-text-secondary">
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <p className="font-bold text-[15px] text-text-primary mb-1 relative z-10 leading-tight">{p.name}</p>
+                  <p className="text-xs font-medium text-text-secondary">
                     {p.uom}
-                    {p.tax_class === 'taxable' && <span className="ml-1 text-amber-600">incl. VAT</span>}
+                    {p.tax_class === 'taxable' && <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-bold">incl. VAT</span>}
                   </p>
-                  {price ? (
-                    <p className="text-brand-primary font-bold text-sm mt-1 font-mono">
-                      {formatMoney(price.price_paisa)}
-                    </p>
-                  ) : (
-                    <p className="text-text-secondary/60 text-xs mt-1">No price</p>
-                  )}
+                  <div className="mt-auto pt-3">
+                    {price ? (
+                      <p className="text-brand-primary dark:text-brand-success font-black text-[15px] font-mono tracking-tight">
+                        {formatMoney(price.price_paisa)}
+                      </p>
+                    ) : (
+                      <p className="text-text-muted text-xs font-semibold">No price</p>
+                    )}
+                  </div>
                 </button>
               )
             })}
             {filtered.length === 0 && (
-              <p className="col-span-full text-center text-text-secondary text-sm mt-8">No products found</p>
+              <p className="col-span-full text-center text-text-muted text-sm mt-10 font-medium">No products found</p>
             )}
           </div>
         </div>
 
         {/* Cart panel — payment and receipt render inline here, not as overlays.
             Hidden below md, where the floating button + bottom sheet take over. */}
-        <div className="w-72 bg-white border-l-[1.5px] border-brand-border hidden md:flex flex-col overflow-hidden">
+        <div className="w-[360px] bg-surface border border-border hidden md:flex flex-col overflow-hidden my-6 mr-6 rounded-3xl shadow-xl relative z-10 animate-fade-in">
           {isDesktop && cartPanel}
         </div>
       </div>
@@ -436,65 +459,79 @@ export default function PosScreen() {
       {!isDesktop && !showCartMobile && (
         <button
           onClick={() => setShowCartMobile(true)}
-          className="md:hidden fixed bottom-4 right-4 z-40 h-14 pl-4 pr-5 bg-brand-primary text-white rounded-full shadow-xl flex items-center gap-2.5 font-semibold text-sm"
+          className="md:hidden fixed bottom-6 right-6 z-40 h-[60px] pl-5 pr-6 bg-brand-primary text-white rounded-full shadow-xl flex items-center gap-3 font-bold text-[15px] hover:scale-105 active:scale-95 transition-all"
           aria-label="Open cart"
         >
           <span className="relative">
-            <ShoppingCart size={22} />
+            <ShoppingCart size={24} />
             {lines.length > 0 && (
-              <span className="absolute -top-2 -right-2 bg-amber-500 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+              <span className="absolute -top-2.5 -right-2.5 bg-amber-500 text-[11px] font-black rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 border-2 border-brand-primary">
                 {lines.length}
               </span>
             )}
           </span>
-          <span className="font-mono">{formatMoney(total)}</span>
+          <span className="font-mono tracking-tight">{formatMoney(total)}</span>
         </button>
       )}
       {!isDesktop && showCartMobile && (
-        <div className="md:hidden fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/45" onClick={() => setShowCartMobile(false)} />
-          <div className="absolute inset-x-0 bottom-0 top-20 bg-white rounded-t-2xl flex flex-col overflow-hidden shadow-2xl">
+        <div className="md:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCartMobile(false)} />
+          <motion.div 
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="absolute inset-x-0 bottom-0 h-[85vh] bg-surface rounded-t-[32px] flex flex-col overflow-hidden shadow-2xl"
+          >
             <button
               onClick={() => setShowCartMobile(false)}
-              className="w-full flex justify-center py-2.5 border-b border-brand-border shrink-0"
+              className="w-full flex justify-center py-4 border-b border-border shrink-0"
               aria-label="Close cart"
             >
-              <span className="w-10 h-1 bg-gray-300 rounded-full" />
+              <span className="w-12 h-1.5 bg-border rounded-full" />
             </button>
-            {cartPanel}
-          </div>
+            <div className="flex-1 relative">
+              {cartPanel}
+            </div>
+          </motion.div>
         </div>
       )}
 
       {/* Held orders panel */}
       {showHeld && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-bold text-text-primary mb-4">Held Orders</h2>
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-surface rounded-3xl shadow-2xl w-full max-w-sm p-7 border border-border"
+          >
+            <h2 className="text-xl font-bold text-text-primary mb-5 tracking-tight">Held Orders</h2>
+            <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
               {heldOrders.map((held, idx) => (
                 <button
                   key={idx}
                   onClick={() => resumeHeld(idx)}
-                  className="w-full text-left border-[1.5px] border-brand-border rounded-lg px-3 py-2 hover:border-brand-primary text-sm transition-colors"
+                  className="w-full flex items-center justify-between text-left border-2 border-border rounded-xl px-4 py-3 hover:border-brand-primary bg-surface transition-all"
                 >
-                  <span className="font-medium text-text-primary">{held.lines.length} item(s)</span>
-                  <span className="text-text-secondary ml-2 font-mono">
+                  <div>
+                    <span className="font-bold text-text-primary block">{held.lines.length} item(s)</span>
+                    <span className="text-xs text-text-muted font-medium mt-0.5 block">
+                      {new Date(held.heldAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <span className="text-brand-primary dark:text-brand-success font-black font-mono text-[15px]">
                     {formatMoney(grandTotal(held.lines))}
-                  </span>
-                  <span className="text-xs text-text-secondary/70 ml-2">
-                    {new Date(held.heldAt).toLocaleTimeString()}
                   </span>
                 </button>
               ))}
             </div>
             <button
               onClick={() => setShowHeld(false)}
-              className="mt-4 w-full border-[1.5px] border-brand-border text-text-secondary py-2 rounded-lg text-sm hover:bg-brand-surface transition-colors"
+              className="mt-6 w-full border-2 border-border text-text-secondary font-bold py-3 rounded-xl text-[15px] hover:bg-surface-hover transition-colors"
             >
               Cancel
             </button>
-          </div>
+          </motion.div>
         </div>
       )}
 

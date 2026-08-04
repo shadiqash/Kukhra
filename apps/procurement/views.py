@@ -20,6 +20,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
     permission_classes = [IsProcurementStaff]
 
+    def perform_create(self, serializer):
+        po = serializer.save()
+        audit(self.request.user, 'create', po,
+              diff={'supplier': po.supplier_id, 'total_paisa': po.total_paisa})
+
     def _move(self, request, pk, new_status):
         po = self.get_object()
         old_status = po.status

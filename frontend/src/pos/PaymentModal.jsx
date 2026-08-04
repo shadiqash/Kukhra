@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   checkoutOrder, createOrder, createOrderLine, createPayment, fulfillOrder,
   createPaymentIntent, verifyPaymentIntent,
@@ -25,7 +26,11 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
 
   const [method, setMethod]         = useState('cash')
   const [ref, setRef]               = useState('')
-  const [tendered, setTendered]     = useState('')
+  // Defaults to exact change as a real (not placeholder) value — most cash
+  // sales are exact change, and a placeholder that mirrors the total looks
+  // pre-filled but isn't, so Confirm Payment would otherwise fail on an
+  // empty field for the most common case.
+  const [tendered, setTendered]     = useState(paisaToAmount(total))
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState('')
   const [doneOrder, setDoneOrder]   = useState(null)
@@ -230,66 +235,79 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
 
   if (doneOrder) {
     return (
-      <div className="flex flex-col flex-1 overflow-y-auto bg-white p-6 text-center">
-        <div className="w-14 h-14 bg-brand-success/10 rounded-full flex items-center justify-center mx-auto mb-3">
-          <svg className="w-8 h-8 text-brand-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+        className="flex flex-col flex-1 overflow-y-auto p-8 text-center bg-surface backdrop-blur-md"
+      >
+        <div className="w-16 h-16 bg-brand-success/10 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm animate-scale-in">
+          <svg className="w-8 h-8 text-brand-success drop-shadow-sm" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-lg font-bold mb-1">Payment Complete</h2>
-        <p className="text-3xl font-bold text-brand-primary mb-1">{formatMoney(total)}</p>
-        <p className="text-sm text-text-secondary mb-4">
+        <h2 className="text-xl font-bold mb-2 text-text-primary">Payment Complete</h2>
+        <p className="text-4xl font-black text-brand-primary dark:text-brand-success mb-2 font-mono tracking-tight">
+          {formatMoney(total)}
+        </p>
+        <p className="text-sm font-medium text-text-secondary bg-surface-active py-1.5 px-4 rounded-full inline-block mx-auto mb-6 shadow-sm border border-border">
           {method === 'cash' && changePaisa > 0
             ? `Change: ${formatMoney(changePaisa)}`
             : method.charAt(0).toUpperCase() + method.slice(1)}
         </p>
-        <div className="flex gap-2 mt-auto">
+        <div className="flex gap-3 mt-auto">
           <button
             onClick={handlePrint}
-            className="flex-1 border border-brand-border text-text-secondary py-2 rounded-lg text-sm hover:bg-brand-surface"
+            className="flex-1 bg-surface border border-border text-text-primary py-3.5 rounded-xl text-[15px] font-bold hover:bg-surface-hover hover:shadow-sm transition-all"
           >
             Print Receipt
           </button>
           <button
             onClick={handleDone}
-            className="flex-1 bg-brand-primary hover:bg-brand-primaryHover text-white py-2 rounded-lg text-sm font-semibold"
+            className="flex-1 bg-gradient-to-r from-brand-primary to-brand-primaryHover text-white py-3.5 rounded-xl text-[15px] font-bold shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
             Done
           </button>
         </div>
-      </div>
+      </motion.div>
     )
   }
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto bg-white p-6">
-      <h2 className="text-lg font-bold mb-1">Payment</h2>
-      <p className="text-3xl font-bold text-brand-primary text-center mb-1">
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      className="flex flex-col flex-1 overflow-y-auto p-6 bg-surface backdrop-blur-sm custom-scrollbar"
+    >
+      <h2 className="text-lg font-bold mb-2 text-center text-text-secondary tracking-wide uppercase text-xs">Confirm Payment</h2>
+      <p className="text-4xl font-black text-brand-primary dark:text-brand-success text-center mb-1 font-mono tracking-tight">
         {formatMoney(total)}
       </p>
       {vat > 0 && (
-        <p className="text-center text-xs text-amber-600 mb-4">
+        <p className="text-center text-xs text-brand-secondary font-bold mb-6 bg-brand-secondary/10 py-1 px-3 rounded-full w-max mx-auto">
           incl. VAT {formatMoney(vat)}
         </p>
       )}
-      {!vat && <div className="mb-4" />}
+      {!vat && <div className="mb-6" />}
 
-      {error && <p className="text-brand-danger text-sm mb-3">{error}</p>}
+      {error && <p className="text-brand-danger bg-brand-danger/10 p-3 rounded-lg border border-brand-danger/20 text-sm font-medium mb-3">{error}</p>}
       {!online && (
-        <p className="text-amber-600 text-xs mb-3 bg-amber-50 rounded px-3 py-2">
+        <p className="text-amber-600 dark:text-amber-400 text-xs font-semibold mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           Offline — order will be queued and synced when connection restores.
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-6 bg-surface-hover p-1.5 rounded-xl border border-border">
         {METHODS.map((m) => (
           <button
             key={m}
-            onClick={() => { setMethod(m); setRef(''); setTendered('') }}
-            className={`py-2 rounded-lg text-sm font-medium border transition ${
+            onClick={() => { setMethod(m); setRef(''); setTendered(m === 'cash' ? paisaToAmount(total) : '') }}
+            className={`py-2.5 rounded-lg text-sm font-bold transition-all duration-200 ${
               method === m
-                ? 'bg-brand-primary text-white border-brand-primary'
-                : 'border-brand-border text-text-secondary hover:border-brand-primary'
+                ? 'bg-surface text-brand-primary shadow-sm border border-border scale-[1.02]'
+                : 'text-text-muted hover:text-text-primary'
             }`}
           >
             {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -297,96 +315,100 @@ export default function PaymentModal({ lines, session, locationId, outletName, o
         ))}
       </div>
 
-      {method === 'cash' && (
-        <div className="mb-4">
-          <label className="block text-xs text-text-secondary mb-1">Cash Tendered (Rs)</label>
-          <input
-            type="number"
-            min={paisaToAmount(total)}
-            step="1"
-            placeholder={paisaToAmount(total)}
-            value={tendered}
-            onChange={(e) => setTendered(e.target.value)}
-            className="w-full border border-brand-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-primary"
-          />
-          {tenderedPaisa >= total && tenderedPaisa > 0 && (
-            <p className="text-xs text-brand-primary mt-1 font-medium">
-              Change: {formatMoney(changePaisa)}
-            </p>
-          )}
-        </div>
-      )}
+      <AnimatePresence mode="wait">
+        {method === 'cash' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-4 overflow-hidden">
+            <label className="block text-xs font-bold text-text-secondary mb-1.5">Cash Tendered (Rs)</label>
+            <input
+              type="number"
+              min={paisaToAmount(total)}
+              step="1"
+              placeholder={paisaToAmount(total)}
+              value={tendered}
+              onChange={(e) => setTendered(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-[15px] font-semibold focus:outline-none focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 transition-all text-text-primary"
+            />
+            {tenderedPaisa >= total && tenderedPaisa > 0 && (
+              <p className="text-[13px] text-brand-primary dark:text-brand-success mt-2 font-bold bg-brand-primary/10 dark:bg-brand-success/10 py-1.5 px-3 rounded-lg border border-brand-primary/20 inline-block">
+                Change: {formatMoney(changePaisa)}
+              </p>
+            )}
+          </motion.div>
+        )}
 
-      {method === 'card' && (
-        <input
-          type="text"
-          placeholder="Card slip number (optional)"
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          className="w-full border border-brand-border rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand-primary"
-        />
-      )}
+        {method === 'card' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-4 overflow-hidden">
+            <input
+              type="text"
+              placeholder="Card slip number (optional)"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 transition-all text-text-primary placeholder:text-text-muted"
+            />
+          </motion.div>
+        )}
 
-      {isGateway && (
-        <div className="mb-4">
-          {methodBlockedOffline ? (
-            <p className="text-sm text-brand-danger bg-red-50 rounded-lg px-3 py-3">
-              QR payment needs a connection — it cannot be confirmed offline.
-              Take cash or card instead.
-            </p>
-          ) : !intent ? (
-            <button
-              onClick={startQr}
-              disabled={loading}
-              className="w-full border-[1.5px] border-brand-primary text-brand-primary py-3 rounded-lg text-sm font-semibold disabled:opacity-50"
-            >
-              {loading ? 'Generating QR…' : `Show QR for ${formatMoney(total)}`}
-            </button>
-          ) : (
-            <div className="border-[1.5px] border-brand-border rounded-lg p-4 flex flex-col items-center gap-3">
-              {/* The QR string comes from the gateway; it encodes the amount we asked for. */}
-              <div className="font-mono text-[10px] break-all text-center text-text-secondary bg-brand-surface rounded p-3 w-full">
-                {intent.qr_payload}
-              </div>
-
-              {verified ? (
-                <p className="text-sm font-semibold text-brand-success">
-                  ✓ Paid — {formatMoney(intent.amount_paisa)} confirmed by the gateway
-                </p>
-              ) : intent.status === 'failed' ? (
-                <p className="text-sm font-semibold text-brand-danger">
-                  Payment failed — nothing was taken
-                </p>
-              ) : (
-                <p className="text-sm text-text-secondary flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  Waiting for the customer to pay…
-                </p>
-              )}
-
+        {isGateway && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-4 overflow-hidden">
+            {methodBlockedOffline ? (
+              <p className="text-sm font-medium text-brand-danger bg-brand-danger/10 border border-brand-danger/20 rounded-xl px-4 py-3">
+                QR payment needs a connection — it cannot be confirmed offline. Take cash or card instead.
+              </p>
+            ) : !intent ? (
               <button
-                onClick={cancelQr}
-                className="text-xs text-text-secondary hover:text-brand-danger underline"
+                onClick={startQr}
+                disabled={loading}
+                className="w-full border-2 border-brand-primary text-brand-primary py-3.5 rounded-xl text-[15px] font-bold disabled:opacity-50 hover:bg-brand-primary/5 transition-colors"
               >
-                Cancel this QR
+                {loading ? 'Generating QR…' : `Show QR for ${formatMoney(total)}`}
               </button>
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div className="border-2 border-border rounded-xl p-5 flex flex-col items-center gap-4 bg-surface-active">
+                {/* The QR string comes from the gateway; it encodes the amount we asked for. */}
+                <div className="font-mono text-[11px] break-all text-center text-text-secondary bg-background border border-border rounded-lg p-3 w-full font-bold">
+                  {intent.qr_payload}
+                </div>
 
-      <div className="flex gap-2 mt-auto">
-        <button onClick={onCancel} className="flex-1 border border-brand-border text-text-secondary py-2 rounded-lg text-sm">
+                {verified ? (
+                  <p className="text-sm font-bold text-brand-success flex items-center gap-2">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    Paid — {formatMoney(intent.amount_paisa)} confirmed
+                  </p>
+                ) : intent.status === 'failed' ? (
+                  <p className="text-sm font-bold text-brand-danger">
+                    Payment failed — nothing was taken
+                  </p>
+                ) : (
+                  <p className="text-[13px] font-semibold text-text-secondary flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+                    Waiting for the customer to pay…
+                  </p>
+                )}
+
+                <button
+                  onClick={cancelQr}
+                  className="text-[13px] font-semibold text-text-muted hover:text-brand-danger transition-colors underline underline-offset-2"
+                >
+                  Cancel this QR
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex gap-3 mt-auto pt-6 border-t border-border shrink-0">
+        <button onClick={onCancel} className="flex-1 bg-surface border border-border text-text-primary py-3.5 rounded-xl text-[15px] font-bold hover:bg-surface-hover transition-all hover:shadow-sm">
           Cancel
         </button>
         <button
           onClick={submit}
           disabled={loading || (isGateway && !verified)}
-          className="flex-1 bg-brand-primary hover:bg-brand-primaryHover text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 bg-gradient-to-r from-brand-primary to-brand-primaryHover text-white py-3.5 rounded-xl text-[15px] font-bold shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
         >
           {loading ? 'Processing…' : isGateway && !verified ? 'Awaiting payment' : 'Confirm Payment'}
         </button>
       </div>
-    </div>
+    </motion.div>
   )
 }

@@ -28,6 +28,11 @@ class LotViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status=status_param)
         return qs
 
+    def perform_create(self, serializer):
+        lot = serializer.save()
+        audit(self.request.user, 'create', lot,
+              diff={'code': lot.code, 'supplier': lot.supplier_id, 'bird_count': lot.bird_count})
+
     @action(detail=True, methods=['post'], url_path='transition')
     def transition(self, request, pk=None):
         lot = self.get_object()
