@@ -406,15 +406,20 @@ export default function PosScreen() {
 
       <div className="flex flex-1 min-h-0">
         {/* Product grid */}
-        <div className="flex-1 flex flex-col p-4 md:p-6 min-w-0">
-          <input
-            type="text"
-            placeholder="Search products or scan barcode…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full border-2 border-border rounded-xl px-5 py-3.5 text-[15px] font-medium mb-6 focus:outline-none focus:border-brand-primary bg-surface text-text-primary placeholder:text-text-muted shadow-sm transition-all"
-          />
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 overflow-y-auto px-1 pb-6 custom-scrollbar">
+        <div className="flex-1 flex flex-col p-4 md:p-8 min-w-0">
+          <div className="relative mb-8 max-w-2xl mx-auto w-full">
+            <input
+              type="text"
+              placeholder="Search products or scan barcode…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="inp pl-14 text-base h-14 bg-surface"
+            />
+            <div className="absolute left-5 top-1/2 -translate-y-1/2 text-text-muted">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 overflow-y-auto px-2 pb-8 custom-scrollbar">
             {filtered.map((p) => {
               const price = prices[p.id]
               return (
@@ -422,35 +427,38 @@ export default function PosScreen() {
                   key={p.id}
                   onClick={() => addToCart(p)}
                   disabled={!hasSession}
-                  className="glass rounded-2xl p-5 text-left hover:scale-[1.04] hover:shadow-xl hover:border-brand-primary/30 dark:hover:border-brand-primary/50 active:scale-[0.97] transition-all duration-200 ease-out disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 flex flex-col relative min-h-[164px] group"
+                  className="glass rounded-[24px] p-6 text-left hover:-translate-y-1 hover:shadow-xl hover:border-brand-primary/40 dark:hover:border-brand-primary/50 active:scale-[0.97] transition-all duration-300 ease-out disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 flex flex-col relative min-h-[170px] group overflow-hidden"
                 >
-                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                  <p className="font-bold text-[15px] text-text-primary mb-1 relative z-10 leading-tight">{p.name}</p>
-                  <p className="text-xs font-medium text-text-secondary">
+                  <div className="absolute inset-0 bg-gradient-to-br from-brand-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <p className="font-bold text-[16px] text-text-primary mb-1.5 relative z-10 leading-tight">{p.name}</p>
+                  <p className="text-xs font-semibold text-text-secondary relative z-10">
                     {p.uom}
-                    {p.tax_class === 'taxable' && <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-bold">incl. VAT</span>}
+                    {p.tax_class === 'taxable' && <span className="ml-2 text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">incl. VAT</span>}
                   </p>
-                  <div className="mt-auto pt-3">
+                  <div className="mt-auto pt-4 relative z-10">
                     {price ? (
-                      <p className="text-brand-primary dark:text-brand-success font-black text-[15px] font-mono tracking-tight">
+                      <p className="text-brand-primary dark:text-brand-success font-black text-lg tracking-tight">
                         {formatMoney(price.price_paisa)}
                       </p>
                     ) : (
-                      <p className="text-text-muted text-xs font-semibold">No price</p>
+                      <p className="text-text-muted text-xs font-bold uppercase tracking-wider">No price</p>
                     )}
                   </div>
                 </button>
               )
             })}
             {filtered.length === 0 && (
-              <p className="col-span-full text-center text-text-muted text-sm mt-10 font-medium">No products found</p>
+              <div className="col-span-full flex flex-col items-center justify-center pt-20 pb-10 opacity-60">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4 text-text-muted"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                 <p className="text-center text-text-muted text-lg font-semibold">No products found</p>
+              </div>
             )}
           </div>
         </div>
 
         {/* Cart panel — payment and receipt render inline here, not as overlays.
             Hidden below md, where the floating button + bottom sheet take over. */}
-        <div className="w-[360px] bg-surface border border-border hidden md:flex flex-col overflow-hidden my-6 mr-6 rounded-3xl shadow-xl relative z-10 animate-fade-in">
+        <div className="w-[380px] bg-surface/90 backdrop-blur-2xl border border-white/20 dark:border-white/10 hidden md:flex flex-col overflow-hidden my-6 mr-6 rounded-[32px] shadow-[0_8px_40px_rgba(0,0,0,0.1)] relative z-10 animate-fade-in">
           {isDesktop && cartPanel}
         </div>
       </div>

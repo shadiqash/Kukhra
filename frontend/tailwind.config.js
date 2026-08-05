@@ -26,7 +26,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['"Inter"', 'sans-serif'],
+        sans: ['"Outfit"', '"Inter"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       boxShadow: {

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 
 from apps.accounts.models import Role
 from apps.catalog.models import Product
@@ -108,6 +109,7 @@ class StockTransferSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'status', 'received_at', 'received_by', 'created_at', 'updated_at']
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_items(self, obj):
         """Line items, read back off the ledger with the sign flipped to positive."""
         return [

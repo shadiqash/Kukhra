@@ -1,8 +1,9 @@
 from django.db.models import Q
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, status, viewsets, serializers
 from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 
 from apps.accounts.audit import audit
 from apps.accounts.permissions import (
@@ -97,6 +98,9 @@ class StockTransferViewSet(
 
 
 class StockQueryView(viewsets.ViewSet):
+    class DummySerializer(serializers.Serializer):
+        pass
+    serializer_class = DummySerializer
     """
     GET /api/stock/?product=<id>&location=<id>
     Outlet managers may only query locations in their assigned set.
@@ -105,6 +109,7 @@ class StockQueryView(viewsets.ViewSet):
     permission_classes = [IsInventoryStaff, OutletManagerReadOnly]
     pagination_class = None  # single-row response, not a queryset list
 
+    @extend_schema(responses={200: dict})
     def list(self, request):
         product_id = request.query_params.get('product')
         location_id = request.query_params.get('location')
@@ -130,6 +135,7 @@ class StockQueryView(viewsets.ViewSet):
         return Response({'product': product_id, 'location': location_id, **result})
 
     @action(detail=False, methods=['get'], url_path='summary')
+    @extend_schema(responses={200: dict})
     def summary(self, request):
         """
         GET /api/stock/summary/?location=<id>

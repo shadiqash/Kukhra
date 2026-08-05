@@ -14,7 +14,9 @@
       "Bash(python -m pytest -x -q)",
       "Bash(node -e \"require\\('playwright'\\)\")",
       "Bash(curl -s http://localhost:8088/api/health/)",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Bash(sort -k2)",
+      "Bash(git grep *)"
     ]
   }
 }

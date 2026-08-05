@@ -51,34 +51,34 @@ export function ConfirmProvider({ children }) {
       {children}
       {dialog && (
         <div
-          className="fixed inset-0 bg-black/45 flex items-center justify-center z-[90] p-4"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[90] p-4 animate-fade-in"
           onClick={() => close(false)}
         >
           <div
             role="alertdialog"
             aria-modal="true"
             aria-label={dialog.title}
-            className="bg-white w-full max-w-[400px] rounded-[20px] shadow-xl p-7"
+            className="glass w-full max-w-[420px] rounded-[24px] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.2)] animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="font-sans font-bold text-[18px] text-text-primary mb-2">{dialog.title}</h2>
+            <h2 className="font-sans font-black text-2xl text-text-primary mb-3 tracking-tight">{dialog.title}</h2>
             {dialog.message && (
-              <p className="text-[14px] text-text-secondary mb-6">{dialog.message}</p>
+              <p className="text-[15px] text-text-secondary font-medium mb-8 leading-relaxed">{dialog.message}</p>
             )}
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <button
                 autoFocus
                 onClick={() => close(false)}
-                className="flex-1 h-11 border-[1.5px] border-brand-border rounded-md text-text-secondary font-medium hover:bg-brand-surface transition-colors"
+                className="flex-1 h-12 border-2 border-border bg-surface-active hover:bg-border rounded-xl text-text-secondary font-bold hover:text-text-primary transition-colors focus:ring-4 focus:ring-border/50 outline-none"
               >
                 {dialog.cancelLabel}
               </button>
               <button
                 onClick={() => close(true)}
-                className={`flex-1 h-11 text-white rounded-md font-semibold transition-colors ${
+                className={`flex-1 h-12 text-white rounded-xl font-bold shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm transition-all focus:ring-4 outline-none ${
                   dialog.danger
-                    ? 'bg-brand-danger hover:bg-[#991b1b]'
-                    : 'bg-brand-primary hover:bg-brand-primaryHover'
+                    ? 'bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 focus:ring-rose-500/30'
+                    : 'bg-gradient-to-r from-brand-primary to-brand-primaryHover focus:ring-brand-primary/30'
                 }`}
               >
                 {dialog.confirmLabel}
