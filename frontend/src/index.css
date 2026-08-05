@@ -42,7 +42,13 @@
   }
   
   .glass-dark {
-    @apply bg-brand-primary/95 dark:bg-[#070b0a]/95 backdrop-blur-xl border border-white/15 shadow-[0_8px_32px_rgba(0,53,46,0.3)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)] text-text-inverse transition-all duration-300;
+    background-color: rgba(0, 53, 46, 0.95);
+    @apply backdrop-blur-xl border border-white/15 shadow-[0_8px_32px_rgba(0,53,46,0.3)] text-text-inverse transition-all duration-300;
+  }
+  
+  .dark .glass-dark {
+    background-color: rgba(7, 11, 10, 0.95);
+    @apply shadow-[0_8px_32px_rgba(0,0,0,0.5)];
   }
 
   .card {
